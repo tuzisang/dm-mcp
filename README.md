@@ -12,32 +12,47 @@ pip install dmPython
 
 ### 2. 数据库配置
 
-#### 方式一：环境变量配置（推荐）
+项目使用配置文件管理系统，所有数据库连接信息都存储在 `dm_config.json` 文件中。
 
-1. 复制配置文件：
-```bash
-cp .env.example .env
+#### 配置文件管理（推荐）
+
+首次启动服务器时，系统会自动创建 `dm_config.json` 配置文件，包含默认配置：
+
+```json
+{
+  "database": {
+    "host": "192.168.2.38",
+    "port": 5236,
+    "user": "SYSDBA",
+    "password": "SYSDBA001",
+    "schema": "aiops"
+  }
+}
 ```
 
-2. 编辑 `.env` 文件配置数据库连接：
-```env
-DM_HOST=192.168.2.38
-DM_PORT=5236
-DM_USER=SYSDBA
-DM_PASSWORD=SYSDBA001
-DM_SCHEMA=aiops
-```
+#### 修改配置方式
 
-#### 方式二：代码配置
+**方式一：直接编辑配置文件**
+1. 编辑 `dm_config.json` 文件
+2. 修改数据库连接参数
+3. 重启服务器使配置生效
 
-修改 `main.py` 中的 `dm_config` 配置：
+**方式二：使用 MCP 工具动态配置**
+使用 `dm_update_config()` 工具可以在运行时修改配置：
 ```python
-dm_config = DmConfig(
-    host="192.168.2.38",
-    port=5236,
-    user="SYSDBA",
-    password="SYSDBA001",
-    schema="aiops"
+# 修改主机地址
+dm_update_config(host="192.168.1.100")
+
+# 修改端口和用户
+dm_update_config(port=5237, user="NEW_USER")
+
+# 修改完整配置
+dm_update_config(
+    host="192.168.1.100",
+    port=5237,
+    user="NEW_USER",
+    password="NEW_PASSWORD",
+    schema="new_schema"
 )
 ```
 
@@ -67,30 +82,52 @@ python dm_client.py
 
 ### 连接问题排查步骤：
 
-1. **检查网络连通性**：
+1. **检查配置文件**：
    ```bash
-   ping 192.168.2.38
+   # 查看当前配置
+   cat dm_config.json
+
+   # 验证配置格式
+   python -c "import json; print(json.load(open('dm_config.json')))"
    ```
 
-2. **检查端口可用性**：
+2. **检查网络连通性**：
    ```bash
-   telnet 192.168.2.38 5236
+   # 使用配置文件中的主机地址
+   ping $(python -c "import json; print(json.load(open('dm_config.json'))['database']['host'])")
    ```
 
-3. **验证用户权限**：
-   - 确认用户名正确
-   - 确认密码正确
-   - 确认用户有访问权限
+3. **检查端口可用性**：
+   ```bash
+   # 使用配置中的主机和端口
+   telnet $(python -c "import json; print(json.load(open('dm_config.json'))['database']['host'])") \
+          $(python -c "import json; print(json.load(open('dm_config.json'))['database']['port'])")
+   ```
 
-4. **检查防火墙设置**：
-   - 确认 5236 端口开放
+4. **验证用户权限**：
+   - 确认配置文件中的用户名和密码正确
+   - 确认用户有访问指定模式的权限
+   - 使用 `dm_connect()` 工具测试连接
+
+5. **配置文件问题**：
+   - 如果配置文件损坏，删除 `dm_config.json` 并重启服务器
+   - 检查文件权限：确保可读写
+   - 使用 `dm_update_config()` 工具重新配置
+
+6. **检查防火墙设置**：
+   - 确认数据库端口开放（默认 5236）
    - 检查网络防火墙规则
+   - 验证主机之间的网络连通性
 
 ## 🛠️ MCP 工具
 
-服务器提供以下 6 个核心数据库工具：
+服务器提供以下 7 个核心数据库工具：
 
-- `dm_connect()`: 测试数据库连接
+### 数据库连接工具
+- `dm_connect()`: 测试数据库连接和健康检查
+- `dm_update_config(host?, port?, user?, password?, schema?)`: 动态修改数据库连接配置并保存到配置文件
+
+### 数据库查询工具
 - `dm_query(sql)`: 执行安全 SQL 查询（仅支持 SELECT）
 - `dm_list_tables(schema?)`: 列出数据库表
 - `dm_list_views(schema?)`: 列出数据库视图
@@ -130,10 +167,18 @@ python dm_client.py
 
 ### 核心文件
 
-- `main.py`: MCP 服务器主入口
-- `dm_client.py`: 数据库客户端封装
+- `main.py`: MCP 服务器主入口（定义7个数据库工具）
+- `dm_client.py`: 数据库客户端封装（DmClient 类和 DmConfig 配置类）
+- `config.py`: 配置管理模块（ConfigManager 类，处理配置文件读写）
 - `pyproject.toml`: 项目配置
-- `.env.example`: 环境变量配置示例
+- `dm_config.json`: 数据库连接配置文件（自动生成）
+
+### 配置文件管理
+
+- **配置文件位置**: `dm_config.json`（项目根目录）
+- **自动创建**: 首次运行时自动生成默认配置
+- **动态更新**: 支持 `dm_update_config()` 工具运行时修改
+- **格式验证**: 自动验证配置格式和参数有效性
 
 ### 添加自定义工具
 

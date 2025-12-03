@@ -5,6 +5,7 @@
 
 import typing as t
 from dataclasses import dataclass
+from config import get_database_config
 
 
 @dataclass
@@ -15,6 +16,18 @@ class DmConfig:
     user: str = "SYSDBA"
     password: str = "SYSDBA001"
     schema: str = "aiops"
+
+    @classmethod
+    def from_config_file(cls):
+        """从配置文件创建配置对象"""
+        db_config = get_database_config()
+        return cls(
+            host=db_config.get("host", "192.168.2.38"),
+            port=db_config.get("port", 5236),
+            user=db_config.get("user", "SYSDBA"),
+            password=db_config.get("password", "SYSDBA001"),
+            schema=db_config.get("schema", "aiops")
+        )
 
 
 class DmClient:
@@ -424,14 +437,9 @@ def test_dm_client():
     """测试达梦数据库客户端 - 修复版本"""
     print("=== 达梦数据库客户端测试 - 修复版本 ===")
 
-    # 测试配置
-    config = DmConfig(
-        host="192.168.2.38",
-        port=5236,
-        user="SYSDBA",
-        password="SYSDBA001",
-        schema="aiops"
-    )
+    # 从配置文件读取配置
+    config = DmConfig.from_config_file()
+    print(f"从配置文件读取连接信息: {config.host}:{config.port}, 用户: {config.user}")
 
     try:
         # 测试连接和查询

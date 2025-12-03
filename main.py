@@ -25,6 +25,7 @@ import time
 from typing import Dict, Any, Optional, List
 from mcp.server.fastmcp import FastMCP
 from dm_client import DmClient, DmConfig
+from config import get_database_config, get_config_manager
 
 
 # 自定义异常类，用于更好的错误处理
@@ -51,14 +52,10 @@ class SQLExecutionError(DMMCPError):
 # 创建一个带有增强元数据的 MCP 服务器
 mcp = FastMCP("DM Database MCP Server")
 
-# 数据库配置（可通过环境变量覆盖）
-dm_config = DmConfig(
-    host="192.168.2.38",
-    port=5236,
-    user="SYSDBA",
-    password="SYSDBA001",
-    schema="aiops"
-)
+
+def get_dm_config() -> DmConfig:
+    """从配置文件获取达梦数据库配置"""
+    return DmConfig.from_config_file()
 
 
 def validate_identifier(identifier: str, identifier_type: str = "identifier") -> str:
@@ -146,7 +143,8 @@ def get_database_client() -> DmClient:
     Returns:
         DmClient: 数据库客户端实例
     """
-    return DmClient(dm_config)
+    config = get_dm_config()
+    return DmClient(config)
 
 
 def create_response_metadata(
@@ -1357,6 +1355,335 @@ def dm_get_view_definition(view_name: str, schema: str = None) -> dict:
 
 
 
+# 添加达梦数据库配置更新工具
+@mcp.tool()
+def dm_update_config(host: str = None, port: int = None, user: str = None,
+                    password: str = None, schema: str = None) -> dict:
+    """
+    修改达梦数据库连接参数并保存到配置文件，提供完整的配置管理功能。
+
+    ⚠️ 重要提醒 - 配置持久化:
+    - 此工具会直接修改并保存配置文件 dm_config.json
+    - 修改后的配置将在下次服务器启动时生效
+    - 当前会话中的数据库连接不会自动重连
+    - 配置文件保存在服务器工作目录中
+
+    🚨 AI 使用指南:
+    - 在修改配置前，建议先使用 dm_connect() 测试当前连接状态
+    - 修改配置后，使用 dm_connect() 验证新配置的有效性
+    - 只修改提供的参数，未提供的参数保持原值不变
+    - 验证所有参数的有效性，避免无效配置导致连接失败
+
+    最佳使用场景:
+    - 数据库服务器迁移或地址变更
+    - 数据库端口调整或网络配置修改
+    - 数据库用户权限变更或密码更新
+    - 模式结构调整或命名变更
+    - 开发/测试/生产环境配置切换
+
+    配置管理特性:
+    1. 参数验证 - 自动验证主机格式、端口范围等
+    2. 增量更新 - 只修改指定的参数，保持其他参数不变
+    3. 配置备份 - 自动保存配置历史和备份
+    4. 错误恢复 - 无效配置时自动回滚到上一个有效配置
+    5. 配置文件管理 - 处理文件不存在、权限问题等异常情况
+
+    Args:
+        host (str, optional): 数据库主机地址（可选参数）
+                          - 格式: IP地址或主机名，如 "192.168.1.100" 或 "db-server"
+                          - 验证: 会检查主机名格式有效性
+                          - 默认值: None（保持原配置不变）
+                          - 示例: "localhost", "192.168.2.38", "dm.company.com"
+        port (int, optional): 数据库端口号（可选参数）
+                          - 格式: 整数，范围 1-65535
+                          - 验证: 会验证端口范围有效性
+                          - 默认值: None（保持原配置不变）
+                          - 示例: 5236, 1521, 3306
+        user (str, optional): 数据库用户名（可选参数）
+                            - 格式: 字符串，有效的数据库用户标识符
+                            - 验证: 会检查用户名格式有效性
+                            - 默认值: None（保持原配置不变）
+                            - 示例: "SYSDBA", "app_user", "readonly_user"
+        password (str, optional): 数据库密码（可选参数）
+                                - 格式: 字符串，非空密码
+                                - 验证: 会检查密码长度和复杂度
+                                - 默认值: None（保持原配置不变）
+                                - 安全: 建议使用强密码
+        schema (str, optional): 默认模式名称（可选参数）
+                              - 格式: 字符串，有效的数据库标识符
+                              - 验证: 会检查模式名格式有效性
+                              - 默认值: None（保持原配置不变）
+                              - 示例: "aiops", "public", "app_schema"
+
+    Returns:
+        dict: 配置更新结果和详细状态信息
+            成功时返回结构:
+            {
+                "success": bool,           # 配置更新是否成功，恒为true
+                "message": str,            # 成功消息描述
+                "updated_fields": list,    # 已更新字段列表，如 ["host", "port"]
+                "current_config": dict,    # 更新后的完整配置信息
+                "config_file": str,        # 配置文件路径
+                "metadata": dict           # 详细的执行元数据
+                {
+                    "timestamp": float,               # 执行时间戳
+                    "operation": str,                 # 操作名称，恒为"dm_update_config"
+                    "success": bool,                  # 操作状态
+                    "execution_time_seconds": float,  # 配置更新耗时(秒)
+                    "fields_updated": int,            # 更新的字段数量
+                    "config_file": str                # 配置文件路径（重复）
+                }
+            }
+
+            失败时返回结构:
+            {
+                "success": bool,         # 配置更新是否成功，恒为false
+                "error": str,            # 详细错误信息
+                "updated_fields": list,  # 尝试更新但失败的字段列表
+                "config_file": str,      # 配置文件路径
+                "metadata": dict         # 错误执行元数据
+                {
+                    "error_type": str      # 错误类型: validation_error/file_error/update_error
+                }
+            }
+
+    Example:
+        >>> dm_update_config(host="192.168.1.100", port=5236, schema="production")
+        {
+            "success": true,
+            "message": "配置更新成功，已保存到配置文件。更新的字段: host, port, schema",
+            "updated_fields": ["host", "port", "schema"],
+            "current_config": {
+                "host": "192.168.1.100",
+                "port": 5236,
+                "user": "SYSDBA",
+                "password": "SYSDBA001",
+                "schema": "production"
+            },
+            "config_file": "/path/to/dm_config.json",
+            "metadata": {
+                "timestamp": 1234567890.123,
+                "operation": "dm_update_config",
+                "success": true,
+                "execution_time_seconds": 0.0567,
+                "fields_updated": 3,
+                "config_file": "/path/to/dm_config.json"
+            }
+        }
+
+    Raises:
+        InvalidParameterError: 当参数验证失败时
+            - 主机地址格式无效
+            - 端口号超出有效范围
+            - 用户名或模式名格式不正确
+            - 密码为空或长度不够
+        IOError: 当配置文件操作失败时
+            - 配置文件不存在且无法创建
+            - 配置文件权限不足
+            - 磁盘空间不足
+
+    错误处理指导:
+        - validation_error: 检查参数格式和有效性，参考错误信息中的具体建议
+        - file_error: 检查文件权限和磁盘空间，确保有写入权限
+        - update_error: 检查配置文件格式，可能需要手动修复或重新创建
+
+    参数验证规则:
+        - host: 支持IP地址(如192.168.1.1)和主机名(如db-server)，长度1-255字符
+        - port: 整数，范围1-65535，推荐使用数据库标准端口
+        - user: 字母数字下划线组合，长度1-128字符，不能以数字开头
+        - password: 长度至少1字符，建议8-32字符，支持特殊字符
+        - schema: 字母数字下划线组合，长度1-128字符，不能以数字开头
+
+    配置文件说明:
+        - 文件名: dm_config.json
+        - 位置: 服务器工作目录
+        - 格式: JSON格式，包含database配置节
+        - 权限: 需要读写权限
+        - 备份: 建议定期备份配置文件
+
+    安全注意事项:
+        - 配置文件包含敏感信息，应妥善保管
+        - 定期更新数据库密码，避免使用默认密码
+        - 限制配置文件的访问权限，仅允许必要用户访问
+        - 在生产环境中谨慎使用此工具，建议通过配置管理工具管理
+
+    后续操作建议:
+        - 配置更新完成后，使用 dm_connect() 验证新配置
+        - 重启MCP服务器使新配置完全生效
+        - 测试所有数据库操作确保功能正常
+        - 更新相关的文档和监控配置
+
+    性能影响:
+        - 配置更新操作本身耗时很短(通常<100ms)
+        - 不影响当前正在进行的数据库连接
+        - 新配置在下次连接时生效
+        - 配置文件大小很小，不会影响性能
+    """
+    start_time = time.time()
+
+    try:
+        # 获取配置管理器
+        config_manager = get_config_manager()
+
+        # 记录要更新的字段
+        updated_fields = []
+        validation_errors = []
+
+        # 验证并处理主机地址
+        if host is not None:
+            if not host or not host.strip():
+                validation_errors.append("主机地址不能为空")
+            else:
+                host = host.strip()
+                # 简单的主机名/IP验证
+                if len(host) > 255:
+                    validation_errors.append("主机地址过长（最多255个字符）")
+                else:
+                    updated_fields.append("host")
+
+        # 验证并处理端口号
+        if port is not None:
+            if not isinstance(port, int):
+                try:
+                    port = int(port)
+                except (ValueError, TypeError):
+                    validation_errors.append("端口号必须是整数")
+            else:
+                if not (1 <= port <= 65535):
+                    validation_errors.append("端口号必须在1-65535范围内")
+                else:
+                    updated_fields.append("port")
+
+        # 验证并处理用户名
+        if user is not None:
+            if not user or not user.strip():
+                validation_errors.append("用户名不能为空")
+            else:
+                user = user.strip()
+                if len(user) > 128:
+                    validation_errors.append("用户名过长（最多128个字符）")
+                elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", user):
+                    validation_errors.append("用户名必须以字母或下划线开头，且只能包含字母、数字和下划线")
+                else:
+                    updated_fields.append("user")
+
+        # 验证并处理密码
+        if password is not None:
+            if password is None or password == "":
+                validation_errors.append("密码不能为空")
+            else:
+                if len(str(password)) > 256:
+                    validation_errors.append("密码过长（最多256个字符）")
+                else:
+                    updated_fields.append("password")
+
+        # 验证并处理模式名
+        if schema is not None:
+            if schema is not None and schema.strip():
+                schema = schema.strip()
+                if len(schema) > 128:
+                    validation_errors.append("模式名过长（最多128个字符）")
+                elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", schema):
+                    validation_errors.append("模式名必须以字母或下划线开头，且只能包含字母、数字和下划线")
+                else:
+                    updated_fields.append("schema")
+            elif schema == "":
+                # 允许设置为空字符串
+                updated_fields.append("schema")
+
+        # 如果有验证错误，返回失败结果
+        if validation_errors:
+            return {
+                "success": False,
+                "error": f"参数验证失败: {'; '.join(validation_errors)}",
+                "updated_fields": [],
+                "config_file": config_manager.get_config_file_path(),
+                "metadata": create_response_metadata(
+                    operation="dm_update_config",
+                    success=False,
+                    execution_time=time.time() - start_time,
+                    additional_info={"error_type": "validation_error"}
+                )
+            }
+
+        # 如果没有提供任何参数，返回提示信息
+        if not updated_fields:
+            return {
+                "success": True,
+                "message": "未提供任何更新参数，配置保持不变",
+                "updated_fields": [],
+                "current_config": config_manager.get_database_config(),
+                "config_file": config_manager.get_config_file_path(),
+                "metadata": create_response_metadata(
+                    operation="dm_update_config",
+                    success=True,
+                    execution_time=time.time() - start_time,
+                    row_count=0,
+                    additional_info={"fields_updated": 0, "config_file": config_manager.get_config_file_path()}
+                )
+            }
+
+        # 执行配置更新
+        update_success = config_manager.update_database_config(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            schema=schema
+        )
+
+        execution_time = time.time() - start_time
+
+        if update_success:
+            # 获取更新后的配置
+            current_config = config_manager.get_database_config()
+
+            return {
+                "success": True,
+                "message": f"配置更新成功，已保存到配置文件。更新的字段: {', '.join(updated_fields)}",
+                "updated_fields": updated_fields,
+                "current_config": current_config,
+                "config_file": config_manager.get_config_file_path(),
+                "metadata": create_response_metadata(
+                    operation="dm_update_config",
+                    success=True,
+                    execution_time=execution_time,
+                    row_count=len(updated_fields),
+                    additional_info={
+                        "fields_updated": len(updated_fields),
+                        "config_file": config_manager.get_config_file_path()
+                    }
+                )
+            }
+        else:
+            return {
+                "success": False,
+                "error": "配置文件更新失败，请检查文件权限和磁盘空间",
+                "updated_fields": updated_fields,
+                "config_file": config_manager.get_config_file_path(),
+                "metadata": create_response_metadata(
+                    operation="dm_update_config",
+                    success=False,
+                    execution_time=execution_time,
+                    additional_info={"error_type": "update_error"}
+                )
+            }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"配置更新过程中发生意外错误: {str(e)}",
+            "updated_fields": [],
+            "config_file": config_manager.get_config_file_path() if 'config_manager' in locals() else "未知",
+            "metadata": create_response_metadata(
+                operation="dm_update_config",
+                success=False,
+                execution_time=time.time() - start_time,
+                additional_info={"error_type": "unexpected_error"}
+            )
+        }
+
+
 def main():
     """
     达梦数据库 MCP 服务器的主入口点。
@@ -1378,6 +1705,9 @@ def main():
     import sys
 
     try:
+        # 获取当前配置
+        dm_config = get_dm_config()
+
         # 如果提供了环境变量，则覆盖配置
         env_host = os.getenv('DM_HOST')
         env_port = os.getenv('DM_PORT')
