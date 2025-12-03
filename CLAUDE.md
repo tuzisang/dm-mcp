@@ -4,20 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a DM (达梦数据库) MCP (Model Context Protocol) server project that provides database integration tools for Claude. The project uses FastMCP to create an MCP server with tools for connecting to and querying DM Database.
+This is a DM (达梦数据库) MCP (Model Context Protocol) server project that provides database integration tools for Claude. The project uses FastMCP to create a focused MCP server with tools specifically for connecting to and querying DM Database.
 
 ## Key Architecture
 
 ### Core Components
-- **main.py**: Main MCP server entry point using FastMCP framework, defines MCP tools and resources
+- **main.py**: Main MCP server entry point using FastMCP framework, defines 6 core database tools
 - **dm_client.py**: Comprehensive DM Database client wrapper with connection management, query execution, and database introspection methods
 - **pyproject.toml**: Project configuration with dmPython dependency
 
 ### MCP Server Structure
-The server provides:
-- **Tools**: `add()`, `dm_query()`, `dm_connect()` for database operations
-- **Resources**: Dynamic greeting resource with URI pattern `greeting://{name}`
-- **Prompts**: Customizable greeting prompt generator with style options
+The server provides focused database tools:
+- **Tools**: `dm_connect()`, `dm_query()`, `dm_list_tables()`, `dm_list_views()`, `dm_describe_table()`, `dm_get_view_definition()`
 
 ### Database Client Features
 The `DmClient` class provides comprehensive database operations:
@@ -56,13 +54,19 @@ python dm_client.py
 
 ## Database Configuration
 
-Default connection settings (modify in main.py:16):
-- Host: localhost
+Default connection settings (modify in main.py or use environment variables):
+- Host: 192.168.2.38
 - Port: 5236
 - User: SYSDBA
-- Password: SYSDBA
+- Password: SYSDBA001
+- Schema: aiops
 
-For production use, update these values or use environment variables.
+Environment variables:
+- `DM_HOST`: Database host
+- `DM_PORT`: Database port
+- `DM_USER`: Database user
+- `DM_PASSWORD`: Database password
+- `DM_SCHEMA`: Database schema
 
 ## Common Development Tasks
 
@@ -104,6 +108,18 @@ view_def = client.get_view_definition("view_name", "schema_name")
 - Update operations return -1 on failure, affected row count on success
 - Schema operations raise `ValueError` for invalid parameters
 
+## Important Considerations
+
+### Case Sensitivity
+- DM Database is case-sensitive for table names and schema names
+- Always use the exact case provided by users
+- Do not convert between uppercase and lowercase automatically
+
+### Security
+- Only SELECT queries are allowed for security
+- All input parameters are validated to prevent SQL injection
+- Connection management is handled automatically
+
 ## Testing
 
 - Run `python dm_client.py` to verify database connectivity
@@ -114,3 +130,29 @@ view_def = client.get_view_definition("view_name", "schema_name")
 
 - **dmpython>=2.5.26**: DM Database Python driver
 - **mcp.server.fastmcp**: MCP server framework (via FastMCP import)
+
+## Project Structure
+
+### Core Files
+- `main.py`: MCP server entry point (1431 lines)
+- `dm_client.py`: Database client wrapper (17.8 KB)
+- `pyproject.toml`: Project configuration
+- `.env.example`: Environment variable configuration example
+
+### MCP Tools Overview
+The server provides 6 focused database tools:
+
+1. **dm_connect()**: Test database connection and health check
+2. **dm_query(sql)**: Execute safe SELECT queries with validation
+3. **dm_list_tables(schema?)**: List database tables with optional schema filtering
+4. **dm_list_views(schema?)**: List database views with optional schema filtering
+5. **dm_describe_table(table_name, schema?)**: Get detailed table structure information
+6. **dm_get_view_definition(view_name, schema?)**: Get complete CREATE statement for views
+
+## Code Quality
+
+- **Total lines**: 1431 lines (after cleanup)
+- **Focused functionality**: Only database-related tools
+- **Comprehensive documentation**: All tools have detailed docstrings
+- **Error handling**: Robust error handling and user feedback
+- **Security**: SQL injection protection and input validation

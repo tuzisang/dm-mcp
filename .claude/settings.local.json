@@ -6,7 +6,9 @@
       "mcp__ide__getDiagnostics",
       "Bash(del:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
