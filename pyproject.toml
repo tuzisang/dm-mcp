@@ -6,4 +6,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "dmpython>=2.5.26",
+    "fastmcp>=2.0.0",
 ]

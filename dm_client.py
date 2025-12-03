@@ -10,11 +10,11 @@ from dataclasses import dataclass
 @dataclass
 class DmConfig:
     """达梦数据库连接配置"""
-    host: str
+    host: str = "192.168.2.38"
     port: int = 5236
-    user: str = ""
-    password: str = ""
-    schema: str = ""
+    user: str = "SYSDBA"
+    password: str = "SYSDBA001"
+    schema: str = "aiops"
 
 
 class DmClient:
@@ -47,6 +47,21 @@ class DmClient:
             print(f"正在连接到达梦数据库: {self.config.host}:{self.config.port}")
             print(f"用户: {self.config.user}, 模式: {self.config.schema or '默认'}")
 
+            # 详细的连接诊断信息
+            print("连接诊断信息:")
+            print(f"  - 主机地址: {self.config.host}")
+            print(f"  - 端口号: {self.config.port}")
+            print(f"  - 用户名: {self.config.user}")
+            print(f"  - 密码长度: {len(self.config.password) if self.config.password else 0} 字符")
+            print(f"  - 默认模式: {self.config.schema or '无'}")
+
+            # 网络连通性检查提示
+            print("提示: 如果连接失败，请检查:")
+            print("  1. 达梦数据库服务是否已启动")
+            print("  2. 网络连接是否正常")
+            print("  3. 防火墙设置是否允许端口访问")
+            print("  4. 用户名和密码是否正确")
+
             # 使用已验证有效的元组方式连接
             conn_params = (self.config.user, self.config.password, self.config.host, self.config.port)
             self.connection = self.driver.connect(*conn_params)
@@ -55,7 +70,47 @@ class DmClient:
             return True
 
         except Exception as e:
-            print(f"连接到达梦数据库失败: {e}")
+            # 详细的错误分析
+            error_msg = str(e).lower()
+            print(f"\n=== 连接失败详细诊断 ===")
+            print(f"错误信息: {e}")
+
+            # 根据错误类型提供具体建议
+            if "network" in error_msg or "connection" in error_msg or "timeout" in error_msg:
+                print("\n可能的网络问题:")
+                print("  - 数据库服务器未启动或不可达")
+                print("  - 网络连接问题")
+                print("  - 防火墙阻止连接")
+                print("  - 端口号错误")
+
+            elif "authentication" in error_msg or "login" in error_msg or "password" in error_msg or "user" in error_msg:
+                print("\n可能的认证问题:")
+                print("  - 用户名错误")
+                print("  - 密码错误")
+                print("  - 用户被锁定或禁用")
+
+            elif "permission" in error_msg or "access" in error_msg:
+                print("\n可能的权限问题:")
+                print("  - 用户没有连接权限")
+                print("  - IP地址限制")
+
+            elif "driver" in error_msg or "module" in error_msg:
+                print("\n可能的驱动问题:")
+                print("  - dmPython驱动未正确安装")
+                print("  - 驱动版本不兼容")
+
+            else:
+                print("\n其他可能的问题:")
+                print("  - 数据库配置问题")
+                print("  - 系统资源不足")
+                print("  - 数据库版本不兼容")
+
+            print(f"\n建议的排查步骤:")
+            print(f"  1. 检查数据库服务状态: netstat -an | grep :{self.config.port}")
+            print(f"  2. 测试网络连通性: telnet {self.config.host} {self.config.port}")
+            print(f"  3. 验证用户凭据")
+            print(f"  4. 检查数据库日志")
+
             self.connection = None
             return False
 

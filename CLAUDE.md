@@ -9,21 +9,24 @@ This is a DM (达梦数据库) MCP (Model Context Protocol) server project that 
 ## Key Architecture
 
 ### Core Components
-- **main.py**: Main MCP server entry point using FastMCP framework
-- **dm_client.py**: DM Database client wrapper with connection management and query execution
+- **main.py**: Main MCP server entry point using FastMCP framework, defines MCP tools and resources
+- **dm_client.py**: Comprehensive DM Database client wrapper with connection management, query execution, and database introspection methods
 - **pyproject.toml**: Project configuration with dmPython dependency
 
 ### MCP Server Structure
 The server provides:
 - **Tools**: `add()`, `dm_query()`, `dm_connect()` for database operations
-- **Resources**: Dynamic greeting resource
-- **Prompts**: Customizable greeting prompt generator
+- **Resources**: Dynamic greeting resource with URI pattern `greeting://{name}`
+- **Prompts**: Customizable greeting prompt generator with style options
 
-### Database Integration
-- Uses dmPython driver for DM Database connectivity
-- Supports connection pooling and transaction management
-- Implements both query execution and update operations
-- Context manager support for proper resource cleanup
+### Database Client Features
+The `DmClient` class provides comprehensive database operations:
+- **Connection Management**: Automatic connection handling with configuration validation
+- **Query Operations**: `execute_query()` for SELECT statements, `execute_update()` for INSERT/UPDATE/DELETE
+- **Database Introspection**: `list_tables()`, `list_views()`, `describe_table()`, `get_view_definition()`
+- **Parameterized Queries**: Safe SQL execution with parameter binding via `_execute_param_query()`
+- **Context Manager Support**: Automatic resource cleanup with `with DmClient(config) as client:`
+- **Error Handling**: Comprehensive exception handling with meaningful error messages
 
 ## Development Commands
 
@@ -82,10 +85,24 @@ with DmClient(config) as client:
     result = client.execute_query("SELECT * FROM table")
 ```
 
+### Database Schema Operations
+```python
+# List tables and views
+tables = client.list_tables("schema_name")
+views = client.list_views("schema_name")
+
+# Get table structure
+columns = client.describe_table("table_name", "schema_name")
+
+# Get view definition
+view_def = client.get_view_definition("view_name", "schema_name")
+```
+
 ### Error Handling
 - Database operations return empty lists on failure
 - Connection errors are caught and logged
 - Update operations return -1 on failure, affected row count on success
+- Schema operations raise `ValueError` for invalid parameters
 
 ## Testing
 
