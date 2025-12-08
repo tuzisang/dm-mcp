@@ -197,6 +197,14 @@ def dm_query(sql: str) -> dict:
     - 示例: 如果用户提到 "MyTable"，应使用 "MyTable" 而不是 "MYTABLE"
     - SQL 关键字（SELECT, FROM, WHERE 等）不区分大小写
 
+    ⚠️ 重要提醒 - 模式名使用规范:
+    - 当查询的表属于特定模式时，必须在表名前加上模式名
+    - 如果模式名是小写或包含特殊字符，必须用双引号包裹
+    - 示例: SELECT * FROM "aischema"."user_table" (当模式名为小写时)
+    - 示例: SELECT * FROM PUBLIC.USERS           (当模式名为大写时)
+    - 示例: SELECT * FROM "MySchema"."MyTable"   (当模式名包含大写小写混合时)
+    - 如果不确定模式名，可先使用 dm_list_tables() 查看
+
     🚨 AI 使用指南:
     - 此工具仅允许 SELECT 查询，出于安全考虑禁止其他 SQL 操作
     - 在构造 SQL 之前，建议先使用 dm_list_tables() 或 dm_describe_table() 验证表结构
