@@ -1366,7 +1366,9 @@ def dm_get_view_definition(view_name: str, schema: str = None) -> dict:
 # 添加达梦数据库配置更新工具
 @mcp.tool()
 def dm_update_config(host: str = None, port: int = None, user: str = None,
-                    password: str = None, schema: str = None) -> dict:
+                    password: str = None, schema: str = None,
+                    query_timeout: int = None, retry_attempts: int = None,
+                    retry_delay: int = None) -> dict:
     """
     修改达梦数据库连接参数并保存到配置文件，提供完整的配置管理功能。
 
@@ -1422,6 +1424,21 @@ def dm_update_config(host: str = None, port: int = None, user: str = None,
                               - 验证: 会检查模式名格式有效性
                               - 默认值: None（保持原配置不变）
                               - 示例: "aiops", "public", "app_schema"
+        query_timeout (int, optional): 查询超时时间（可选参数）
+                                     - 格式: 整数，单位为秒
+                                     - 范围: 1-3600秒（1秒到1小时）
+                                     - 默认值: None（保持原配置不变）
+                                     - 示例: 300, 600, 1800
+        retry_attempts (int, optional): 重试次数（可选参数）
+                                      - 格式: 整数，重试次数
+                                      - 范围: 0-10次
+                                      - 默认值: None（保持原配置不变）
+                                      - 示例: 3, 5, 0
+        retry_delay (int, optional): 重试延迟时间（可选参数）
+                                   - 格式: 整数，单位为秒
+                                   - 范围: 0-60秒
+                                   - 默认值: None（保持原配置不变）
+                                   - 示例: 5, 10, 30
 
     Returns:
         dict: 配置更新结果和详细状态信息
@@ -1599,6 +1616,45 @@ def dm_update_config(host: str = None, port: int = None, user: str = None,
                 # 允许设置为空字符串
                 updated_fields.append("schema")
 
+        # 验证并处理查询超时时间
+        if query_timeout is not None:
+            if not isinstance(query_timeout, int):
+                try:
+                    query_timeout = int(query_timeout)
+                except (ValueError, TypeError):
+                    validation_errors.append("查询超时时间必须是整数")
+            else:
+                if not (1 <= query_timeout <= 3600):
+                    validation_errors.append("查询超时时间必须在1-3600秒范围内")
+                else:
+                    updated_fields.append("query_timeout")
+
+        # 验证并处理重试次数
+        if retry_attempts is not None:
+            if not isinstance(retry_attempts, int):
+                try:
+                    retry_attempts = int(retry_attempts)
+                except (ValueError, TypeError):
+                    validation_errors.append("重试次数必须是整数")
+            else:
+                if not (0 <= retry_attempts <= 10):
+                    validation_errors.append("重试次数必须在0-10次范围内")
+                else:
+                    updated_fields.append("retry_attempts")
+
+        # 验证并处理重试延迟时间
+        if retry_delay is not None:
+            if not isinstance(retry_delay, int):
+                try:
+                    retry_delay = int(retry_delay)
+                except (ValueError, TypeError):
+                    validation_errors.append("重试延迟时间必须是整数")
+            else:
+                if not (0 <= retry_delay <= 60):
+                    validation_errors.append("重试延迟时间必须在0-60秒范围内")
+                else:
+                    updated_fields.append("retry_delay")
+
         # 如果有验证错误，返回失败结果
         if validation_errors:
             return {
@@ -1637,7 +1693,10 @@ def dm_update_config(host: str = None, port: int = None, user: str = None,
             port=port,
             user=user,
             password=password,
-            schema=schema
+            schema=schema,
+            query_timeout=query_timeout,
+            retry_attempts=retry_attempts,
+            retry_delay=retry_delay
         )
 
         execution_time = time.time() - start_time

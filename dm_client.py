@@ -16,6 +16,9 @@ class DmConfig:
     user: str = "SYSDBA"
     password: str = "SYSDBA001"
     schema: str = "aiops"
+    query_timeout: int = 300  # 查询超时时间（秒）
+    retry_attempts: int = 3   # 重试次数
+    retry_delay: int = 5      # 重试延迟（秒）
 
     @classmethod
     def from_config_file(cls):
@@ -26,7 +29,10 @@ class DmConfig:
             port=db_config.get("port", 5236),
             user=db_config.get("user", "SYSDBA"),
             password=db_config.get("password", "SYSDBA001"),
-            schema=db_config.get("schema", "aiops")
+            schema=db_config.get("schema", "aiops"),
+            query_timeout=db_config.get("query_timeout", 300),
+            retry_attempts=db_config.get("retry_attempts", 3),
+            retry_delay=db_config.get("retry_delay", 5)
         )
 
 
@@ -129,70 +135,125 @@ class DmClient:
 
     
     def execute_query(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
-        """执行 SQL 查询，返回结果"""
+        """执行 SQL 查询，返回结果（带超时和重试机制）"""
+        return self._execute_with_retry(self._execute_query_with_timeout, sql)
+
+    def _execute_query_with_timeout(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
+        """执行 SQL 查询的核心方法（带超时控制）"""
         if not self.connection:
             if not self.connect():
                 return []
 
-        try:
-            cursor = self.connection.cursor()
-
-            print(f"执行 SQL: {sql.strip()}")
-
-            cursor.execute(sql)
-
-            # 获取列名
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-
-            # 获取结果
-            rows = cursor.fetchall()
-
-            # 转换为字典列表
-            result = []
-            for row in rows:
-                if len(columns) == len(row):
-                    result.append(dict(zip(columns, row)))
-                else:
-                    # 如果列数不匹配，使用索引作为键
-                    result.append({"row": row})
-
-            cursor.close()
-
-            print(f"查询成功，返回 {len(result)} 行结果")
-            return result
-
-        except Exception as e:
-            print(f"查询执行失败: {e}")
-            return []
+        import signal
+        import threading
+        
+        result = []
+        exception_occurred = None
+        
+        def query_worker():
+            nonlocal result, exception_occurred
+            try:
+                cursor = self.connection.cursor()
+                print(f"执行 SQL: {sql.strip()}")
+                
+                cursor.execute(sql)
+                
+                # 获取列名
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                
+                # 获取结果
+                rows = cursor.fetchall()
+                
+                # 转换为字典列表
+                for row in rows:
+                    if len(columns) == len(row):
+                        result.append(dict(zip(columns, row)))
+                    else:
+                        # 如果列数不匹配，使用索引作为键
+                        result.append({"row": row})
+                
+                cursor.close()
+                print(f"查询成功，返回 {len(result)} 行结果")
+                
+            except Exception as e:
+                exception_occurred = e
+                print(f"查询执行失败: {e}")
+        
+        # 使用线程执行查询，以便能够控制超时
+        query_thread = threading.Thread(target=query_worker)
+        query_thread.daemon = True
+        query_thread.start()
+        
+        # 等待查询完成或超时
+        query_thread.join(timeout=self.config.query_timeout)
+        
+        if query_thread.is_alive():
+            # 查询超时，强制断开连接
+            print(f"查询超时（{self.config.query_timeout}秒），强制断开连接")
+            self.disconnect()
+            raise Exception(f"查询超时（{self.config.query_timeout}秒）")
+        
+        if exception_occurred:
+            raise exception_occurred
+            
+        return result
 
     def execute_update(self, sql: str) -> int:
-        """执行 INSERT/UPDATE/DELETE 语句，返回影响的行数"""
+        """执行 INSERT/UPDATE/DELETE 语句，返回影响的行数（带超时和重试机制）"""
+        return self._execute_with_retry(self._execute_update_with_timeout, sql)
+
+    def _execute_update_with_timeout(self, sql: str) -> int:
+        """执行更新语句的核心方法（带超时控制）"""
         if not self.connection:
             if not self.connect():
                 return -1
 
-        try:
-            cursor = self.connection.cursor()
-
-            print(f"执行更新语句: {sql.strip()}")
-
-            cursor.execute(sql)
-            affected_rows = cursor.rowcount
-
-            self.connection.commit()
-            cursor.close()
-
-            print(f"更新成功，影响 {affected_rows} 行")
-            return affected_rows
-
-        except Exception as e:
-            print(f"更新执行失败: {e}")
-            if self.connection:
-                try:
-                    self.connection.rollback()
-                except:
-                    pass
-            return -1
+        import threading
+        
+        affected_rows = -1
+        exception_occurred = None
+        
+        def update_worker():
+            nonlocal affected_rows, exception_occurred
+            try:
+                cursor = self.connection.cursor()
+                print(f"执行更新语句: {sql.strip()}")
+                
+                cursor.execute(sql)
+                affected_rows = cursor.rowcount
+                
+                self.connection.commit()
+                cursor.close()
+                
+                print(f"更新成功，影响 {affected_rows} 行")
+                
+            except Exception as e:
+                exception_occurred = e
+                print(f"更新执行失败: {e}")
+                if self.connection:
+                    try:
+                        self.connection.rollback()
+                    except:
+                        pass
+        
+        # 使用线程执行更新，以便能够控制超时
+        update_thread = threading.Thread(target=update_worker)
+        update_thread.daemon = True
+        update_thread.start()
+        
+        # 等待更新完成或超时
+        update_thread.join(timeout=self.config.query_timeout)
+        
+        if update_thread.is_alive():
+            # 更新超时，强制断开连接
+            print(f"更新超时（{self.config.query_timeout}秒），强制断开连接")
+            self.disconnect()
+            raise Exception(f"更新超时（{self.config.query_timeout}秒）")
+        
+        if exception_occurred:
+            raise exception_occurred
+            
+        return affected_rows
 
     def test_connection(self) -> dict:
         """测试数据库连接"""
@@ -412,16 +473,54 @@ class DmClient:
         print(f"表结构查询完成，表: {table_name}, 结果: {len(result)} 列")
         return result
 
-    def close(self):
-        """关闭数据库连接"""
+    def disconnect(self):
+        """断开数据库连接"""
         if self.connection:
             try:
                 self.connection.close()
-                print("达梦数据库连接已关闭")
+                print("达梦数据库连接已断开")
             except Exception as e:
-                print(f"关闭连接时出错: {e}")
+                print(f"断开连接时出错: {e}")
             finally:
                 self.connection = None
+
+    def close(self):
+        """关闭数据库连接"""
+        self.disconnect()
+
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """通用重试机制"""
+        import time
+        
+        last_exception = None
+        
+        for attempt in range(self.config.retry_attempts + 1):  # +1 因为包含初始尝试
+            try:
+                if attempt > 0:
+                    print(f"第 {attempt} 次重试...")
+                    # 重试前先断开连接
+                    self.disconnect()
+                    # 等待重试延迟
+                    time.sleep(self.config.retry_delay)
+                
+                return func(*args, **kwargs)
+                
+            except Exception as e:
+                last_exception = e
+                print(f"尝试 {attempt + 1} 失败: {e}")
+                
+                # 如果是最后一次尝试，不再重试
+                if attempt >= self.config.retry_attempts:
+                    break
+                    
+                print(f"将在 {self.config.retry_delay} 秒后重试...")
+        
+        # 所有重试都失败了
+        print(f"所有重试都失败，总共尝试了 {self.config.retry_attempts + 1} 次")
+        if last_exception:
+            raise last_exception
+        else:
+            raise Exception("操作失败，原因未知")
 
     def __enter__(self):
         """上下文管理器支持"""

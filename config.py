@@ -26,7 +26,10 @@ class ConfigManager:
                 "port": 5236,
                 "user": "SYSDBA",
                 "password": "SYSDBA001",
-                "schema": "aiops"
+                "schema": "aiops",
+                "query_timeout": 300,
+                "retry_attempts": 3,
+                "retry_delay": 5
             }
         }
 
@@ -103,6 +106,9 @@ class ConfigManager:
         db_config.setdefault("user", "SYSDBA")
         db_config.setdefault("password", "SYSDBA001")
         db_config.setdefault("schema", "aiops")
+        db_config.setdefault("query_timeout", 300)
+        db_config.setdefault("retry_attempts", 3)
+        db_config.setdefault("retry_delay", 5)
 
         # 验证端口类型
         if not isinstance(db_config["port"], int):
@@ -114,6 +120,18 @@ class ConfigManager:
         # 验证端口范围
         if not (1 <= db_config["port"] <= 65535):
             db_config["port"] = 5236
+
+        # 验证超时时间
+        if not isinstance(db_config["query_timeout"], int) or db_config["query_timeout"] < 1:
+            db_config["query_timeout"] = 300
+
+        # 验证重试次数
+        if not isinstance(db_config["retry_attempts"], int) or db_config["retry_attempts"] < 0:
+            db_config["retry_attempts"] = 3
+
+        # 验证重试延迟
+        if not isinstance(db_config["retry_delay"], int) or db_config["retry_delay"] < 0:
+            db_config["retry_delay"] = 5
 
         return config
 
@@ -131,7 +149,10 @@ class ConfigManager:
                              port: Optional[int] = None,
                              user: Optional[str] = None,
                              password: Optional[str] = None,
-                             schema: Optional[str] = None) -> bool:
+                             schema: Optional[str] = None,
+                             query_timeout: Optional[int] = None,
+                             retry_attempts: Optional[int] = None,
+                             retry_delay: Optional[int] = None) -> bool:
         """
         更新数据库配置
 
@@ -159,6 +180,12 @@ class ConfigManager:
                 config["database"]["password"] = password
             if schema is not None:
                 config["database"]["schema"] = schema
+            if query_timeout is not None:
+                config["database"]["query_timeout"] = query_timeout
+            if retry_attempts is not None:
+                config["database"]["retry_attempts"] = retry_attempts
+            if retry_delay is not None:
+                config["database"]["retry_delay"] = retry_delay
 
             return self.save_config(config)
         except Exception as e:
