@@ -189,114 +189,18 @@ def create_response_metadata(
 @mcp.tool()
 def dm_query(sql: str) -> dict:
     """
-    在达梦数据库上执行安全的 SELECT 查询，提供全面的参数验证和 SQL 注入保护。
+    执行安全的 SELECT 查询。
 
-    ⚠️ 重要提醒 - 大小写敏感性:
-    - 达梦数据库对 schema 名称和表名称是大小写敏感的
-    - AI 必须使用用户提供的确切大小写，不要默认转换为大写
-    - 示例: 如果用户提到 "MyTable"，应使用 "MyTable" 而不是 "MYTABLE"
-    - SQL 关键字（SELECT, FROM, WHERE 等）不区分大小写
-
-    ⚠️ 重要提醒 - 模式名使用规范:
-    - 当查询的表属于特定模式时，必须在表名前加上模式名
-    - 如果模式名是小写或包含特殊字符，必须用双引号包裹
-    - 示例: SELECT * FROM "aischema"."user_table" (当模式名为小写时)
-    - 示例: SELECT * FROM PUBLIC.USERS           (当模式名为大写时)
-    - 示例: SELECT * FROM "MySchema"."MyTable"   (当模式名包含大写小写混合时)
-    - 如果不确定模式名，可先使用 dm_list_tables() 查看
-
-    🚨 AI 使用指南:
-    - 此工具仅允许 SELECT 查询，出于安全考虑禁止其他 SQL 操作
-    - 在构造 SQL 之前，建议先使用 dm_list_tables() 或 dm_describe_table() 验证表结构
-    - 对于复杂的查询，建议分步执行并验证每一步
-    - 始终使用参数化查询避免 SQL 注入（此工具已内置防护）
-
-    最佳使用场景:
-    - 数据探索和分析查询
-    - 报表数据获取
-    - 业务逻辑验证
-    - 数据完整性检查
+    ⚠️ 达梦数据库双引号规则:
+    - 模式名、表名、字段名需要用双引号包裹才能识别大小写
+    - 不用双引号会自动转为大写
+    - 示例: SELECT * FROM "aiops"."TASK_HANDLE_WORKORDER"
 
     Args:
-        sql (str): 要执行的 SQL SELECT 查询语句（必需参数）
-                 - 格式: 标准 SQL SELECT 语法，支持达梦数据库特定功能
-                 - 限制: 仅允许 SELECT 查询，禁止 DROP/DELETE/UPDATE/INSERT 等
-                 - 安全: 已内置 SQL 注入防护和关键字过滤
-                 - 验证: 会检查查询语法和危险关键字
+        sql: SQL SELECT 查询语句（仅允许SELECT，禁止其他操作）
 
     Returns:
-        dict: 查询结果和执行信息的完整响应
-            成功时返回结构:
-            {
-                "success": bool,           # 操作是否成功，恒为true
-                "data": list,             # 查询结果行列表，每行为字典格式
-                "sql": str,               # 实际执行的SQL查询
-                "metadata": dict          # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_query"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 执行耗时(秒)
-                    "row_count": int,                 # 返回的行数
-                    "query_type": str                 # 查询类型，恒为"SELECT"
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 操作是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "sql": str,              # 原始SQL查询
-                "metadata": dict         # 错误执行元数据
-                {
-                    "timestamp": float,
-                    "operation": str,
-                    "success": bool,
-                    "execution_time_seconds": float,
-                    "error_type": str      # 错误类型: validation_error/connection_error/unexpected_error
-                }
-            }
-
-    Example:
-        >>> dm_query("SELECT * FROM users WHERE id = 1")
-        {
-            "success": true,
-            "data": [{"id": 1, "name": "John", "email": "john@example.com"}],
-            "sql": "SELECT * FROM users WHERE id = 1",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_query",
-                "success": true,
-                "execution_time_seconds": 0.0234,
-                "row_count": 1,
-                "query_type": "SELECT"
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当SQL查询无效或包含危险操作时
-            - 非SELECT查询
-            - 包含危险关键字
-            - 查询为空或格式错误
-        DatabaseConnectionError: 当数据库连接失败时
-        SQLExecutionError: 当SQL执行失败时
-
-    错误处理指导:
-        - validation_error: 检查SQL语法，确保只使用SELECT语句
-        - connection_error: 检查数据库连接配置，可能需要使用dm_connect()测试连接
-        - unexpected_error: 查看详细错误信息，可能是数据库权限或表不存在问题
-
-    性能和安全建议:
-        - 避免SELECT *，明确指定需要的列名
-        - 对大表使用LIMIT子句限制返回行数
-        - 使用WHERE子句减少数据传输量
-        - 考虑查询复杂度，避免过深的嵌套查询
-
-    数据使用最佳实践:
-        - 检查返回的row_count以了解数据规模
-        - 使用metadata中的execution_time评估查询性能
-        - 对于大量数据，考虑分页处理
-        - 验证返回数据的完整性和准确性
+        dict: {success, data, sql, metadata} 或 {success, error, sql, metadata}
     """
     start_time = time.time()
 
@@ -350,15 +254,24 @@ def dm_query(sql: str) -> dict:
             )
         }
     except Exception as e:
+        # 检查是否是超时错误
+        error_msg = str(e)
+        if "超时" in error_msg or "timeout" in error_msg.lower():
+            error_type = "timeout_error"
+            error_description = f"查询超时: {error_msg}"
+        else:
+            error_type = "unexpected_error"
+            error_description = f"查询执行过程中发生意外错误: {error_msg}"
+        
         return {
             "success": False,
-            "error": f"查询执行过程中发生意外错误: {str(e)}",
+            "error": error_description,
             "sql": sql,
             "metadata": create_response_metadata(
                 operation="dm_query",
                 success=False,
                 execution_time=time.time() - start_time,
-                additional_info={"error_type": "unexpected_error"}
+                additional_info={"error_type": error_type}
             )
         }
 
@@ -367,103 +280,13 @@ def dm_query(sql: str) -> dict:
 @mcp.tool()
 def dm_connect() -> dict:
     """
-    测试到达梦数据库的连接并验证数据库可访问性，执行全面的连接健康检查。
+    测试达梦数据库连接，验证网络、身份验证和基本查询响应。
 
-    ⚠️ 重要提醒 - 连接测试目的:
-    - 此工具专门用于诊断数据库连接问题
-    - 在使用其他数据库工具前，建议先运行此工具验证连接状态
-    - 连接测试包括网络连接、身份验证和基本查询响应验证
-
-    🚨 AI 使用指南:
-    - 当其他数据库操作失败时，首先使用此工具排查连接问题
-    - 验证数据库配置参数是否正确（主机、端口、用户、密码）
-    - 检查网络连通性和数据库服务状态
-    - 测试数据库用户权限和基本查询能力
-
-    最佳使用场景:
-    - 初次配置数据库连接时
-    - 其他数据库操作失败时的故障排查
-    - 定期检查数据库服务健康状态
-    - 验证数据库配置变更后的连接有效性
-    - 监控网络连接稳定性
-
-    测试内容包括:
-    1. 网络连接测试 - 验证数据库服务器可达性
-    2. 身份验证验证 - 检查用户名和密码有效性
-    3. 基本查询执行 - 验证数据库响应和权限
-    4. 连接池功能 - 测试连接资源的正常分配和释放
+    用途: 诊断连接问题、验证配置、检查数据库服务状态。
 
     Returns:
-        dict: 连接测试结果和详细诊断信息
-            成功时返回结构:
-            {
-                "success": bool,           # 连接测试是否成功，恒为true
-                "message": str,            # 成功消息描述
-                "test_query_result": dict, # 测试查询结果 {test_value: 1}
-                "metadata": dict           # 执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_connect"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 连接测试耗时(秒)
-                    "error_type": str                 # 错误类型（仅在失败时存在）
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 连接测试是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "message": str,          # 失败消息描述
-                "metadata": dict         # 错误诊断元数据
-            }
-
-    Example:
-        >>> dm_connect()
-        {
-            "success": true,
-            "message": "数据库连接成功且响应正常",
-            "test_query_result": {"test_value": 1},
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_connect",
-                "success": true,
-                "execution_time_seconds": 0.1234
-            }
-        }
-
-    Raises:
-        DatabaseConnectionError: 当数据库连接失败时
-            - 网络不可达
-            - 认证失败（用户名/密码错误）
-            - 数据库服务未运行
-        Exception: 其他未预期的系统错误
-
-    错误处理指导:
-        - connection_error:
-            1. 检查数据库服务是否启动
-            2. 验证网络连通性（防火墙、端口配置）
-            3. 确认连接参数正确性（主机、端口、用户、密码）
-            4. 检查数据库用户权限和状态
-        - unexpected_error: 查看详细错误信息，可能是系统资源或配置问题
-
-    诊断检查清单:
-        ✅ 网络连通性: 检查数据库服务器是否可达
-        ✅ 服务状态: 确认达梦数据库服务正在运行
-        ✅ 端口配置: 验证端口5236（或指定端口）是否开放
-        ✅ 认证信息: 确认用户名和密码正确
-        ✅ 权限设置: 检查用户是否有基本查询权限
-        ✅ 资源可用: 验证数据库连接池资源是否充足
-
-    性能基准:
-        - 正常连接时间: 应小于1秒
-        - 测试查询响应: 应小于100毫秒
-        - 如果连接时间过长，可能存在网络或性能问题
-
-    后续行动建议:
-        - 连接成功: 可以安全使用其他数据库工具
-        - 连接失败: 根据错误信息调整配置或联系管理员
-        - 响应缓慢: 考虑网络优化或数据库性能调优
+        dict: {success, message, test_query_result, metadata} 或 {success, error, message, metadata}
+              error_type: connection_error | timeout_error | unexpected_error
     """
     start_time = time.time()
 
@@ -504,15 +327,24 @@ def dm_connect() -> dict:
             )
         }
     except Exception as e:
+        # 检查是否是超时错误
+        error_msg = str(e)
+        if "超时" in error_msg or "timeout" in error_msg.lower():
+            error_type = "timeout_error"
+            error_description = f"连接测试超时: {error_msg}"
+        else:
+            error_type = "unexpected_error"
+            error_description = f"连接测试过程中发生意外错误: {error_msg}"
+        
         return {
             "success": False,
-            "error": f"连接测试过程中发生意外错误: {str(e)}",
+            "error": error_description,
             "message": "数据库连接测试失败",
             "metadata": create_response_metadata(
                 operation="dm_connect",
                 success=False,
                 execution_time=time.time() - start_time,
-                additional_info={"error_type": "unexpected_error"}
+                additional_info={"error_type": error_type}
             )
         }
 
@@ -521,116 +353,16 @@ def dm_connect() -> dict:
 @mcp.tool()
 def dm_list_tables(schema: str = None) -> dict:
     """
-    列出来自达梦数据库的数据库表，可选择按模式过滤，返回完整的表信息。
+    列出数据库表，可按模式过滤。
 
-    ⚠️ 重要提醒 - 大小写敏感性:
-    - 达梦数据库对 schema 名称是大小写敏感的
-    - AI 必须使用用户提供的确切 schema 大小写，不要默认转换
-    - 如果用户提到 "MySchema"，应使用 "MySchema" 而不是 "MYSCHEMA"
-    - 不指定 schema 时，将返回当前用户默认模式中的表
-
-    🚨 AI 使用指南:
-    - 在执行查询前，使用此工具了解可用的表结构
-    - 结合 dm_describe_table() 获取表的详细结构信息
-    - 用于验证表名是否存在于指定的模式中
-    - 帮助用户发现和探索数据库中的表资源
-
-    最佳使用场景:
-    - 数据库结构探索和导航
-    - 表名验证和存在性检查
-    - 数据库模式分析
-    - 为复杂查询准备表名信息
-    - 数据库文档生成和维护
+    ⚠️ 达梦数据库大小写敏感: schema名称必须使用用户提供的确切大小写，不要转换。
 
     Args:
-        schema (str, optional): 模式名称过滤器（可选参数）
-                           - 格式: 字符串，必须是有效的达梦数据库标识符
-                           - 大小写: 完全大小写敏感，使用用户提供的确切值
-                           - 默认值: None（查询当前用户默认模式）
-                           - 验证: 会进行标识符有效性检查
-                           - 限制: 不能包含SQL关键字或特殊字符
+        schema: 模式名称过滤器（可选，大小写敏感）
 
     Returns:
-        dict: 表列表查询结果和详细信息
-            成功时返回结构:
-            {
-                "success": bool,           # 操作是否成功，恒为true
-                "data": list,             # 表信息列表，每个元素包含表名等字段
-                "schema": str,            # 查询的模式名（可能与输入不同，经过验证）
-                "metadata": dict          # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_list_tables"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 查询耗时(秒)
-                    "row_count": int,                 # 返回的表数量
-                    "schema_filtered": bool           # 是否进行了模式过滤
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 操作是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "schema": str,           # 原始schema参数值
-                "metadata": dict         # 错误执行元数据
-                {
-                    "error_type": str      # 错误类型: validation_error/connection_error/unexpected_error
-                }
-            }
-
-    Example:
-        >>> dm_list_tables("PUBLIC")
-        {
-            "success": true,
-            "data": [
-                {"TABLE_NAME": "USERS", "OWNER": "PUBLIC"},
-                {"TABLE_NAME": "PRODUCTS", "OWNER": "PUBLIC"}
-            ],
-            "schema": "PUBLIC",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_list_tables",
-                "success": true,
-                "execution_time_seconds": 0.0456,
-                "row_count": 2,
-                "schema_filtered": true
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当schema名称无效时
-            - 包含SQL关键字或特殊字符
-            - 格式不符合达梦数据库标识符规范
-            - 长度超过数据库限制（通常128字符）
-        DatabaseConnectionError: 当数据库连接失败时
-
-    错误处理指导:
-        - validation_error: 检查schema名称格式，确保符合数据库命名规范
-        - connection_error: 使用dm_connect()测试数据库连接状态
-        - unexpected_error: 检查数据库权限和schema存在性
-
-    数据使用最佳实践:
-        - 检查row_count了解表的数量规模
-        - 使用返回的表名构造后续的查询语句
-        - 注意保留原始的大小写格式
-        - 对于大量表，考虑分批处理
-
-    Schema 使用建议:
-        - 不指定schema: 查看当前用户可访问的所有表
-        - 指定具体schema: 精确查找特定模式中的表
-        - 常用schema: PUBLIC, SYSDBA, 或用户自定义schema
-        - 大小写匹配: 确保与数据库中实际schema大小写完全一致
-
-    性能说明:
-        - 查询复杂度: O(n)，n为表的数量
-        - 内存占用: 与返回的表数量成正比
-        - 执行时间: 通常在毫秒级别，大型数据库可能需要更长时间
-
-    权限要求:
-        - 需要对目标schema有读取权限
-        - 系统表查询权限（通常默认拥有）
-        - 某些受保护的schema可能需要特殊权限
+        dict: {success, data, schema, metadata} 或 {success, error, schema, metadata}
+              error_type: validation_error | connection_error | unexpected_error
     """
     start_time = time.time()
 
@@ -703,128 +435,16 @@ def dm_list_tables(schema: str = None) -> dict:
 @mcp.tool()
 def dm_list_views(schema: str = None) -> dict:
     """
-    列出来自达梦数据库的数据库视图，可选择按模式过滤，返回完整的视图信息。
+    列出数据库视图，可按模式过滤。
 
-    ⚠️ 重要提醒 - 大小写敏感性:
-    - 达梦数据库对 schema 名称和视图名称都是大小写敏感的
-    - AI 必须使用用户提供的确切大小写，不要默认转换
-    - 如果用户提到 "MyView"，应使用 "MyView" 而不是 "MYVIEW"
-    - 不指定 schema 时，将返回当前用户默认模式中的视图
-
-    🚨 AI 使用指南:
-    - 在查询视图数据前，使用此工具了解可用的视图资源
-    - 结合 dm_get_view_definition() 获取视图的完整SQL定义
-    - 用于验证视图名是否存在于指定的模式中
-    - 帮助用户理解数据库中的虚拟表结构和逻辑
-
-    最佳使用场景:
-    - 数据库视图资源发现和探索
-    - 视图名验证和存在性检查
-    - 复杂数据查询的逻辑理解
-    - 业务数据报表的结构分析
-    - 数据库抽象层的导航和使用
+    ⚠️ 达梦数据库大小写敏感: schema名称必须使用用户提供的确切大小写，不要转换。
 
     Args:
-        schema (str, optional): 模式名称过滤器（可选参数）
-                           - 格式: 字符串，必须是有效的达梦数据库标识符
-                           - 大小写: 完全大小写敏感，使用用户提供的确切值
-                           - 默认值: None（查询当前用户默认模式）
-                           - 验证: 会进行标识符有效性检查
-                           - 限制: 不能包含SQL关键字或特殊字符
+        schema: 模式名称过滤器（可选，大小写敏感）
 
     Returns:
-        dict: 视图列表查询结果和详细信息
-            成功时返回结构:
-            {
-                "success": bool,           # 操作是否成功，恒为true
-                "data": list,             # 视图信息列表，每个元素包含视图名等字段
-                "schema": str,            # 查询的模式名（可能与输入不同，经过验证）
-                "metadata": dict          # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_list_views"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 查询耗时(秒)
-                    "row_count": int,                 # 返回的视图数量
-                    "schema_filtered": bool           # 是否进行了模式过滤
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 操作是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "schema": str,           # 原始schema参数值
-                "metadata": dict         # 错误执行元数据
-                {
-                    "error_type": str      # 错误类型: validation_error/connection_error/unexpected_error
-                }
-            }
-
-    Example:
-        >>> dm_list_views("PUBLIC")
-        {
-            "success": true,
-            "data": [
-                {"VIEW_NAME": "USER_SUMMARY", "OWNER": "PUBLIC"},
-                {"VIEW_NAME": "PRODUCT_STATS", "OWNER": "PUBLIC"}
-            ],
-            "schema": "PUBLIC",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_list_views",
-                "success": true,
-                "execution_time_seconds": 0.0345,
-                "row_count": 2,
-                "schema_filtered": true
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当schema名称无效时
-            - 包含SQL关键字或特殊字符
-            - 格式不符合达梦数据库标识符规范
-            - 长度超过数据库限制（通常128字符）
-        DatabaseConnectionError: 当数据库连接失败时
-
-    错误处理指导:
-        - validation_error: 检查schema名称格式，确保符合数据库命名规范
-        - connection_error: 使用dm_connect()测试数据库连接状态
-        - unexpected_error: 检查数据库权限和schema存在性
-
-    视图与表的区别说明:
-        - 视图是虚拟表，基于SQL查询结果
-        - 视图不存储实际数据，每次查询时动态生成
-        - 视图可以简化复杂查询，提供数据抽象层
-        - 视图可用于实现数据安全性和访问控制
-
-    数据使用最佳实践:
-        - 检查row_count了解视图的数量规模
-        - 使用返回的视图名构造后续的查询语句
-        - 注意保留原始的大小写格式
-        - 对于性能敏感的应用，了解视图的底层查询逻辑
-
-    Schema 使用建议:
-        - 不指定schema: 查看当前用户可访问的所有视图
-        - 指定具体schema: 精确查找特定模式中的视图
-        - 常用schema: PUBLIC, SYSDBA, 或用户自定义schema
-        - 大小写匹配: 确保与数据库中实际schema大小写完全一致
-
-    后续操作建议:
-        - 发现有用视图后，使用 dm_get_view_definition() 查看完整定义
-        - 使用 dm_query() 查询视图数据
-        - 分析视图逻辑以理解数据处理流程
-        - 评估视图性能以优化查询策略
-
-    性能说明:
-        - 查询复杂度: O(n)，n为视图的数量
-        - 内存占用: 与返回的视图数量成正比
-        - 执行时间: 通常在毫秒级别，大型数据库可能需要更长时间
-
-    权限要求:
-        - 需要对目标schema有读取权限
-        - 系统表查询权限（通常默认拥有）
-        - 查看视图定义可能需要额外的权限
+        dict: {success, data, schema, metadata} 或 {success, error, schema, metadata}
+              error_type: validation_error | connection_error | unexpected_error
     """
     start_time = time.time()
 
@@ -897,161 +517,18 @@ def dm_list_views(schema: str = None) -> dict:
 @mcp.tool()
 def dm_describe_table(table_name: str, schema: str = None) -> dict:
     """
-    获取包括列定义在内的详细表结构信息，提供完整的数据库表元数据。
+    获取表的详细结构信息，包括列定义、数据类型、约束等。
 
-    ⚠️ 重要提醒 - 大小写敏感性:
-    - 达梦数据库对 schema 名称和表名称都是大小写敏感的
-    - AI 必须使用用户提供的确切大小写，不要默认转换为大写
-    - 如果用户提到 "MyTable"，应使用 "MyTable" 而不是 "MYTABLE"
-    - 列名也是大小写敏感的，返回结果会保持数据库中的原始大小写
-
-    🚨 AI 使用指南:
-    - 在构造查询语句前，使用此工具了解表的完整结构
-    - 结合 dm_list_tables() 发现可用表，然后获取详细结构
-    - 用于验证查询中的列名和数据类型
-    - 帮助用户理解数据库设计和约束条件
-
-    最佳使用场景:
-    - 数据库表结构分析和理解
-    - 查询语句构造前的列名验证
-    - 数据类型映射和转换
-    - 数据库文档生成和维护
-    - 数据迁移和集成的结构分析
-
-    获取的详细信息包括:
-    - 列基本信息: 名称、数据类型、长度、精度
-    - 约束信息: 可空性、默认值、主键/外键关系
-    - 排序信息: 列在表中的物理顺序
-    - 元数据: 创建时间、修改时间、注释等
+    ⚠️ 达梦数据库大小写敏感: table_name和schema必须使用用户提供的确切大小写，不要转换。
 
     Args:
-        table_name (str): 要描述的表名（必需参数）
-                       - 格式: 字符串，必须是有效的达梦数据库标识符
-                       - 大小写: 完全大小写敏感，使用用户提供的确切值
-                       - 验证: 会进行标识符有效性检查
-                       - 限制: 不能包含SQL关键字或特殊字符
-        schema (str, optional): 模式名称（可选参数）
-                           - 格式: 字符串，必须是有效的达梦数据库标识符
-                           - 大小写: 完全大小写敏感，使用用户提供的确切值
-                           - 默认值: None（在当前用户默认模式中查找表）
-                           - 验证: 会进行标识符有效性检查
-                           - 限制: 不能包含SQL关键字或特殊字符
+        table_name: 表名（必需，大小写敏感）
+        schema: 模式名称（可选，大小写敏感）
 
     Returns:
-        dict: 表结构信息查询结果和详细元数据
-            成功时返回结构:
-            {
-                "success": bool,           # 操作是否成功，恒为true
-                "data": list,             # 列定义信息列表，每个元素包含列的完整信息
-                "table_name": str,        # 描述的表名（经过验证）
-                "schema": str,            # 查询的模式名（经过验证）
-                "metadata": dict          # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_describe_table"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 查询耗时(秒)
-                    "row_count": int,                 # 返回的列数量
-                    "table_name": str,                # 表名（重复）
-                    "schema": str                     # 模式名（重复）
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 操作是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "table_name": str,       # 原始表名参数值
-                "schema": str,           # 原始schema参数值
-                "metadata": dict         # 错误执行元数据
-                {
-                    "error_type": str      # 错误类型: validation_error/connection_error/unexpected_error
-                }
-            }
-
-    Example:
-        >>> dm_describe_table("USERS", "PUBLIC")
-        {
-            "success": true,
-            "data": [
-                {
-                    "COLUMN_NAME": "ID",
-                    "DATA_TYPE": "INTEGER",
-                    "DATA_LENGTH": 10,
-                    "DATA_PRECISION": 10,
-                    "NULLABLE": "N",
-                    "COLUMN_ID": 1,
-                    "DEFAULT_VALUE": null
-                },
-                {
-                    "COLUMN_NAME": "NAME",
-                    "DATA_TYPE": "VARCHAR",
-                    "DATA_LENGTH": 100,
-                    "DATA_PRECISION": null,
-                    "NULLABLE": "Y",
-                    "COLUMN_ID": 2,
-                    "DEFAULT_VALUE": null
-                }
-            ],
-            "table_name": "USERS",
-            "schema": "PUBLIC",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_describe_table",
-                "success": true,
-                "execution_time_seconds": 0.0234,
-                "row_count": 2,
-                "table_name": "USERS",
-                "schema": "PUBLIC"
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当参数无效时
-            - table_name或schema包含SQL关键字或特殊字符
-            - 格式不符合达梦数据库标识符规范
-            - 长度超过数据库限制（通常128字符）
-            - table_name参数为空或仅包含空白字符
-        DatabaseConnectionError: 当数据库连接失败时
-
-    错误处理指导:
-        - validation_error: 检查table_name和schema格式，确保符合数据库命名规范
-        - connection_error: 使用dm_connect()测试数据库连接状态
-        - table_not_found: 使用dm_list_tables()确认表的存在性和正确的大小写
-        - permission_denied: 检查用户对目标表的读取权限
-
-    列信息字段说明:
-        - COLUMN_NAME: 列名（保持原始大小写）
-        - DATA_TYPE: 数据类型（VARCHAR, INTEGER, DATE, TIMESTAMP等）
-        - DATA_LENGTH: 字符串类型的最大长度
-        - DATA_PRECISION: 数值类型的精度
-        - DATA_SCALE: 数值类型的小数位数
-        - NULLABLE: 是否允许NULL值（'Y'=允许, 'N'=不允许）
-        - COLUMN_ID: 列在表中的物理位置
-        - DEFAULT_VALUE: 默认值（如果有）
-
-    数据使用最佳实践:
-        - 根据DATA_TYPE和DATA_LENGTH构造适当的查询参数
-        - 检查NULLABLE字段避免插入NULL值到非空列
-        - 使用COLUMN_ID了解列的物理顺序
-        - 注意特殊数据类型（BLOB, CLOB）的处理方式
-
-    查询构造建议:
-        - 使用正确的列名和数据类型构造WHERE子句
-        - 根据字段长度限制字符串参数
-        - 注意数值类型的精度和范围
-        - 考虑时区信息处理TIMESTAMP类型
-
-    性能说明:
-        - 查询复杂度: O(n)，n为表中的列数量
-        - 内存占用: 与返回的列数量成正比
-        - 执行时间: 通常在毫秒级别
-        - 缓存建议: 表结构信息相对稳定，可以考虑缓存
-
-    权限要求:
-        - 需要对目标表有读取权限
-        - 系统表查询权限（通常默认拥有）
-        - 某些受保护表的结构信息可能需要特殊权限
+        dict: {success, data, table_name, schema, metadata} 或 {success, error, ...}
+              data包含: COLUMN_NAME, DATA_TYPE, DATA_LENGTH, NULLABLE, COLUMN_ID等
+              error_type: validation_error | connection_error | unexpected_error
     """
     start_time = time.time()
 
@@ -1134,155 +611,18 @@ def dm_describe_table(table_name: str, schema: str = None) -> dict:
 @mcp.tool()
 def dm_get_view_definition(view_name: str, schema: str = None) -> dict:
     """
-    获取数据库视图的完整 CREATE 语句，提供视图的完整SQL定义和逻辑分析。
+    获取视图的完整 CREATE VIEW 语句和SQL定义。
 
-    ⚠️ 重要提醒 - 大小写敏感性:
-    - 达梦数据库对 schema 名称和视图名称都是大小写敏感的
-    - AI 必须使用用户提供的确切大小写，不要默认转换
-    - 如果用户提到 "MyView"，应使用 "MyView" 而不是 "MYVIEW"
-    - 视图定义中的表名和列名也会保持原始的大小写格式
-
-    🚨 AI 使用指南:
-    - 使用此工具理解复杂视图的业务逻辑和数据转换规则
-    - 结合 dm_list_views() 发现可用视图，然后获取完整定义
-    - 分析视图依赖关系和性能影响
-    - 帮助用户理解数据抽象层的设计思路
-
-    最佳使用场景:
-    - 视图业务逻辑分析和理解
-    - 数据血缘分析和影响评估
-    - 视图性能优化和重构
-    - 数据库文档生成和维护
-    - 数据迁移和复制时的结构复现
-
-    获取的信息包括:
-    - 完整的CREATE VIEW语句
-    - 底层查询逻辑和表依赖关系
-    - 列映射和数据转换规则
-    - 业务逻辑的SQL实现方式
+    ⚠️ 达梦数据库大小写敏感: view_name和schema必须使用用户提供的确切大小写，不要转换。
 
     Args:
-        view_name (str): 要获取定义的视图名（必需参数）
-                       - 格式: 字符串，必须是有效的达梦数据库标识符
-                       - 大小写: 完全大小写敏感，使用用户提供的确切值
-                       - 验证: 会进行标识符有效性检查
-                       - 限制: 不能包含SQL关键字或特殊字符
-        schema (str, optional): 模式名称（可选参数）
-                           - 格式: 字符串，必须是有效的达梦数据库标识符
-                           - 大小写: 完全大小写敏感，使用用户提供的确切值
-                           - 默认值: None（在当前用户默认模式中查找视图）
-                           - 验证: 会进行标识符有效性检查
-                           - 限制: 不能包含SQL关键字或特殊字符
+        view_name: 视图名（必需，大小写敏感）
+        schema: 模式名称（可选，大小写敏感）
 
     Returns:
-        dict: 视图定义查询结果和详细信息
-            成功时返回结构:
-            {
-                "success": bool,           # 操作是否成功，恒为true
-                "data": list,             # 视图定义信息列表，通常包含一个元素
-                "view_name": str,         # 查询的视图名（经过验证）
-                "schema": str,            # 查询的模式名（经过验证）
-                "metadata": dict          # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_get_view_definition"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 查询耗时(秒)
-                    "row_count": int,                 # 返回的记录数量
-                    "view_name": str,                 # 视图名（重复）
-                    "schema": str                     # 模式名（重复）
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 操作是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "view_name": str,        # 原始view_name参数值
-                "schema": str,           # 原始schema参数值
-                "metadata": dict         # 错误执行元数据
-                {
-                    "error_type": str      # 错误类型: validation_error/connection_error/unexpected_error
-                }
-            }
-
-    Example:
-        >>> dm_get_view_definition("USER_SUMMARY", "PUBLIC")
-        {
-            "success": true,
-            "data": [
-                {
-                    "VIEW_DEF": "CREATE VIEW USER_SUMMARY AS SELECT u.id, u.name, u.email FROM PUBLIC.users u WHERE u.active = 1 AND u.created_at >= '2020-01-01'"
-                }
-            ],
-            "view_name": "USER_SUMMARY",
-            "schema": "PUBLIC",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_get_view_definition",
-                "success": true,
-                "execution_time_seconds": 0.0345,
-                "row_count": 1,
-                "view_name": "USER_SUMMARY",
-                "schema": "PUBLIC"
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当参数无效时
-            - view_name或schema包含SQL关键字或特殊字符
-            - 格式不符合达梦数据库标识符规范
-            - 长度超过数据库限制（通常128字符）
-            - view_name参数为空或仅包含空白字符
-        DatabaseConnectionError: 当数据库连接失败时
-
-    错误处理指导:
-        - validation_error: 检查view_name和schema格式，确保符合数据库命名规范
-        - connection_error: 使用dm_connect()测试数据库连接状态
-        - view_not_found: 使用dm_list_views()确认视图的存在性和正确的大小写
-        - permission_denied: 检查用户对目标视图的读取权限和查看定义权限
-
-    视图定义信息说明:
-        - VIEW_DEF字段: 包含完整的CREATE VIEW语句
-        - 可能包含多行定义（对于复杂视图）
-        - 保持原始的SQL格式和大小写
-        - 包含所有子查询、JOIN操作和聚合逻辑
-
-    定义分析要点:
-        - 基础表依赖: 分析视图依赖的源表
-        - 数据过滤条件: 理解WHERE子句的业务规则
-        - 数据转换: 识别计算列和表达式
-        - 性能影响因素: 复杂的JOIN、子查询、聚合操作
-        - 数据完整性: 约束和验证逻辑
-
-    性能分析建议:
-        - 检查是否包含复杂的JOIN操作
-        - 分析WHERE条件的过滤效果
-        - 评估聚合操作的计算复杂度
-        - 识别可能的性能瓶颈点
-
-    数据使用最佳实践:
-        - 保存视图定义用于文档和审计
-        - 分析视图逻辑以理解数据加工过程
-        - 评估视图对基础表性能的影响
-        - 考虑视图重构和优化的可能性
-
-    后续操作建议:
-        - 使用 dm_query() 测试视图的数据查询性能
-        - 分析依赖的基表结构使用 dm_describe_table()
-        - 考虑创建索引优化视图查询性能
-        - 评估视图的业务价值和使用场景
-
-    权限要求:
-        - 需要对目标视图有读取权限
-        - 需要有查看视图定义的特殊权限
-        - 对依赖的基础表可能也需要相应的权限
-        - 系统表查询权限（通常默认拥有）
-
-    安全注意事项:
-        - 视图定义可能暴露敏感的表结构和业务逻辑
-        - 某些视图可能包含专有的数据处理算法
-        - 考虑访问控制和审计需求
+        dict: {success, data, view_name, schema, metadata} 或 {success, error, ...}
+              data包含: VIEW_DEF (完整的CREATE VIEW语句)
+              error_type: validation_error | connection_error | unexpected_error
     """
     start_time = time.time()
 
@@ -1370,179 +710,23 @@ def dm_update_config(host: str = None, port: int = None, user: str = None,
                     query_timeout: int = None, retry_attempts: int = None,
                     retry_delay: int = None) -> dict:
     """
-    修改达梦数据库连接参数并保存到配置文件，提供完整的配置管理功能。
+    修改数据库连接参数并保存到 dm_config.json 配置文件。
 
-    ⚠️ 重要提醒 - 配置持久化:
-    - 此工具会直接修改并保存配置文件 dm_config.json
-    - 修改后的配置将在下次服务器启动时生效
-    - 当前会话中的数据库连接不会自动重连
-    - 配置文件保存在服务器工作目录中
-
-    🚨 AI 使用指南:
-    - 在修改配置前，建议先使用 dm_connect() 测试当前连接状态
-    - 修改配置后，使用 dm_connect() 验证新配置的有效性
-    - 只修改提供的参数，未提供的参数保持原值不变
-    - 验证所有参数的有效性，避免无效配置导致连接失败
-
-    最佳使用场景:
-    - 数据库服务器迁移或地址变更
-    - 数据库端口调整或网络配置修改
-    - 数据库用户权限变更或密码更新
-    - 模式结构调整或命名变更
-    - 开发/测试/生产环境配置切换
-
-    配置管理特性:
-    1. 参数验证 - 自动验证主机格式、端口范围等
-    2. 增量更新 - 只修改指定的参数，保持其他参数不变
-    3. 配置备份 - 自动保存配置历史和备份
-    4. 错误恢复 - 无效配置时自动回滚到上一个有效配置
-    5. 配置文件管理 - 处理文件不存在、权限问题等异常情况
+    ⚠️ 配置持久化: 修改后需重启服务器生效，只修改提供的参数，其他保持不变。
 
     Args:
-        host (str, optional): 数据库主机地址（可选参数）
-                          - 格式: IP地址或主机名，如 "192.168.1.100" 或 "db-server"
-                          - 验证: 会检查主机名格式有效性
-                          - 默认值: None（保持原配置不变）
-                          - 示例: "localhost", "192.168.2.38", "dm.company.com"
-        port (int, optional): 数据库端口号（可选参数）
-                          - 格式: 整数，范围 1-65535
-                          - 验证: 会验证端口范围有效性
-                          - 默认值: None（保持原配置不变）
-                          - 示例: 5236, 1521, 3306
-        user (str, optional): 数据库用户名（可选参数）
-                            - 格式: 字符串，有效的数据库用户标识符
-                            - 验证: 会检查用户名格式有效性
-                            - 默认值: None（保持原配置不变）
-                            - 示例: "SYSDBA", "app_user", "readonly_user"
-        password (str, optional): 数据库密码（可选参数）
-                                - 格式: 字符串，非空密码
-                                - 验证: 会检查密码长度和复杂度
-                                - 默认值: None（保持原配置不变）
-                                - 安全: 建议使用强密码
-        schema (str, optional): 默认模式名称（可选参数）
-                              - 格式: 字符串，有效的数据库标识符
-                              - 验证: 会检查模式名格式有效性
-                              - 默认值: None（保持原配置不变）
-                              - 示例: "aiops", "public", "app_schema"
-        query_timeout (int, optional): 查询超时时间（可选参数）
-                                     - 格式: 整数，单位为秒
-                                     - 范围: 1-3600秒（1秒到1小时）
-                                     - 默认值: None（保持原配置不变）
-                                     - 示例: 300, 600, 1800
-        retry_attempts (int, optional): 重试次数（可选参数）
-                                      - 格式: 整数，重试次数
-                                      - 范围: 0-10次
-                                      - 默认值: None（保持原配置不变）
-                                      - 示例: 3, 5, 0
-        retry_delay (int, optional): 重试延迟时间（可选参数）
-                                   - 格式: 整数，单位为秒
-                                   - 范围: 0-60秒
-                                   - 默认值: None（保持原配置不变）
-                                   - 示例: 5, 10, 30
+        host: 数据库主机地址（IP或主机名）
+        port: 端口号（1-65535）
+        user: 用户名
+        password: 密码
+        schema: 默认模式名称
+        query_timeout: 查询超时秒数（1-3600）
+        retry_attempts: 重试次数（0-10）
+        retry_delay: 重试延迟秒数（0-60）
 
     Returns:
-        dict: 配置更新结果和详细状态信息
-            成功时返回结构:
-            {
-                "success": bool,           # 配置更新是否成功，恒为true
-                "message": str,            # 成功消息描述
-                "updated_fields": list,    # 已更新字段列表，如 ["host", "port"]
-                "current_config": dict,    # 更新后的完整配置信息
-                "config_file": str,        # 配置文件路径
-                "metadata": dict           # 详细的执行元数据
-                {
-                    "timestamp": float,               # 执行时间戳
-                    "operation": str,                 # 操作名称，恒为"dm_update_config"
-                    "success": bool,                  # 操作状态
-                    "execution_time_seconds": float,  # 配置更新耗时(秒)
-                    "fields_updated": int,            # 更新的字段数量
-                    "config_file": str                # 配置文件路径（重复）
-                }
-            }
-
-            失败时返回结构:
-            {
-                "success": bool,         # 配置更新是否成功，恒为false
-                "error": str,            # 详细错误信息
-                "updated_fields": list,  # 尝试更新但失败的字段列表
-                "config_file": str,      # 配置文件路径
-                "metadata": dict         # 错误执行元数据
-                {
-                    "error_type": str      # 错误类型: validation_error/file_error/update_error
-                }
-            }
-
-    Example:
-        >>> dm_update_config(host="192.168.1.100", port=5236, schema="production")
-        {
-            "success": true,
-            "message": "配置更新成功，已保存到配置文件。更新的字段: host, port, schema",
-            "updated_fields": ["host", "port", "schema"],
-            "current_config": {
-                "host": "192.168.1.100",
-                "port": 5236,
-                "user": "SYSDBA",
-                "password": "SYSDBA001",
-                "schema": "production"
-            },
-            "config_file": "/path/to/dm_config.json",
-            "metadata": {
-                "timestamp": 1234567890.123,
-                "operation": "dm_update_config",
-                "success": true,
-                "execution_time_seconds": 0.0567,
-                "fields_updated": 3,
-                "config_file": "/path/to/dm_config.json"
-            }
-        }
-
-    Raises:
-        InvalidParameterError: 当参数验证失败时
-            - 主机地址格式无效
-            - 端口号超出有效范围
-            - 用户名或模式名格式不正确
-            - 密码为空或长度不够
-        IOError: 当配置文件操作失败时
-            - 配置文件不存在且无法创建
-            - 配置文件权限不足
-            - 磁盘空间不足
-
-    错误处理指导:
-        - validation_error: 检查参数格式和有效性，参考错误信息中的具体建议
-        - file_error: 检查文件权限和磁盘空间，确保有写入权限
-        - update_error: 检查配置文件格式，可能需要手动修复或重新创建
-
-    参数验证规则:
-        - host: 支持IP地址(如192.168.1.1)和主机名(如db-server)，长度1-255字符
-        - port: 整数，范围1-65535，推荐使用数据库标准端口
-        - user: 字母数字下划线组合，长度1-128字符，不能以数字开头
-        - password: 长度至少1字符，建议8-32字符，支持特殊字符
-        - schema: 字母数字下划线组合，长度1-128字符，不能以数字开头
-
-    配置文件说明:
-        - 文件名: dm_config.json
-        - 位置: 服务器工作目录
-        - 格式: JSON格式，包含database配置节
-        - 权限: 需要读写权限
-        - 备份: 建议定期备份配置文件
-
-    安全注意事项:
-        - 配置文件包含敏感信息，应妥善保管
-        - 定期更新数据库密码，避免使用默认密码
-        - 限制配置文件的访问权限，仅允许必要用户访问
-        - 在生产环境中谨慎使用此工具，建议通过配置管理工具管理
-
-    后续操作建议:
-        - 配置更新完成后，使用 dm_connect() 验证新配置
-        - 重启MCP服务器使新配置完全生效
-        - 测试所有数据库操作确保功能正常
-        - 更新相关的文档和监控配置
-
-    性能影响:
-        - 配置更新操作本身耗时很短(通常<100ms)
-        - 不影响当前正在进行的数据库连接
-        - 新配置在下次连接时生效
-        - 配置文件大小很小，不会影响性能
+        dict: {success, message, updated_fields, current_config, config_file, metadata}
+              error_type: validation_error | file_error | update_error | unexpected_error
     """
     start_time = time.time()
 

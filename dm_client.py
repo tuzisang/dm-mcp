@@ -16,7 +16,7 @@ class DmConfig:
     user: str = "SYSDBA"
     password: str = "SYSDBA001"
     schema: str = "aiops"
-    query_timeout: int = 300  # 查询超时时间（秒）
+    query_timeout: int = 120  # 查询超时时间（秒）
     retry_attempts: int = 3   # 重试次数
     retry_delay: int = 5      # 重试延迟（秒）
 
@@ -30,7 +30,7 @@ class DmConfig:
             user=db_config.get("user", "SYSDBA"),
             password=db_config.get("password", "SYSDBA001"),
             schema=db_config.get("schema", "aiops"),
-            query_timeout=db_config.get("query_timeout", 300),
+            query_timeout=db_config.get("query_timeout", 120),
             retry_attempts=db_config.get("retry_attempts", 3),
             retry_delay=db_config.get("retry_delay", 5)
         )
@@ -144,25 +144,32 @@ class DmClient:
             if not self.connect():
                 return []
 
-        import signal
         import threading
+        import time
         
         result = []
         exception_occurred = None
+        query_completed = threading.Event()
         
         def query_worker():
             nonlocal result, exception_occurred
             try:
                 cursor = self.connection.cursor()
                 print(f"执行 SQL: {sql.strip()}")
+                print(f"查询超时设置: {self.config.query_timeout} 秒")
                 
+                start_time = time.time()
                 cursor.execute(sql)
+                execute_time = time.time() - start_time
+                print(f"SQL执行耗时: {execute_time:.2f} 秒")
                 
                 # 获取列名
                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
                 
                 # 获取结果
                 rows = cursor.fetchall()
+                fetch_time = time.time() - start_time
+                print(f"数据获取总耗时: {fetch_time:.2f} 秒")
                 
                 # 转换为字典列表
                 for row in rows:
@@ -174,24 +181,39 @@ class DmClient:
                 
                 cursor.close()
                 print(f"查询成功，返回 {len(result)} 行结果")
+                query_completed.set()
                 
             except Exception as e:
                 exception_occurred = e
                 print(f"查询执行失败: {e}")
+                query_completed.set()
         
         # 使用线程执行查询，以便能够控制超时
         query_thread = threading.Thread(target=query_worker)
         query_thread.daemon = True
+        
+        print(f"开始执行查询，超时时间: {self.config.query_timeout} 秒")
+        start_time = time.time()
         query_thread.start()
         
         # 等待查询完成或超时
-        query_thread.join(timeout=self.config.query_timeout)
+        completed = query_completed.wait(timeout=self.config.query_timeout)
+        elapsed_time = time.time() - start_time
         
-        if query_thread.is_alive():
-            # 查询超时，强制断开连接
-            print(f"查询超时（{self.config.query_timeout}秒），强制断开连接")
+        if not completed:
+            # 查询超时
+            print(f"查询超时！已等待 {elapsed_time:.2f} 秒，超过设定的 {self.config.query_timeout} 秒")
+            print("强制断开数据库连接...")
             self.disconnect()
-            raise Exception(f"查询超时（{self.config.query_timeout}秒）")
+            
+            # 等待线程结束（给一点时间让线程清理）
+            query_thread.join(timeout=1.0)
+            if query_thread.is_alive():
+                print("警告: 查询线程仍在运行，可能存在资源泄漏")
+            
+            raise Exception(f"查询超时（{self.config.query_timeout}秒），实际等待时间: {elapsed_time:.2f}秒")
+        
+        print(f"查询完成，总耗时: {elapsed_time:.2f} 秒")
         
         if exception_occurred:
             raise exception_occurred
@@ -209,23 +231,31 @@ class DmClient:
                 return -1
 
         import threading
+        import time
         
         affected_rows = -1
         exception_occurred = None
+        update_completed = threading.Event()
         
         def update_worker():
             nonlocal affected_rows, exception_occurred
             try:
                 cursor = self.connection.cursor()
                 print(f"执行更新语句: {sql.strip()}")
+                print(f"更新超时设置: {self.config.query_timeout} 秒")
                 
+                start_time = time.time()
                 cursor.execute(sql)
+                execute_time = time.time() - start_time
+                print(f"SQL执行耗时: {execute_time:.2f} 秒")
+                
                 affected_rows = cursor.rowcount
                 
                 self.connection.commit()
                 cursor.close()
                 
                 print(f"更新成功，影响 {affected_rows} 行")
+                update_completed.set()
                 
             except Exception as e:
                 exception_occurred = e
@@ -235,20 +265,34 @@ class DmClient:
                         self.connection.rollback()
                     except:
                         pass
+                update_completed.set()
         
         # 使用线程执行更新，以便能够控制超时
         update_thread = threading.Thread(target=update_worker)
         update_thread.daemon = True
+        
+        print(f"开始执行更新，超时时间: {self.config.query_timeout} 秒")
+        start_time = time.time()
         update_thread.start()
         
         # 等待更新完成或超时
-        update_thread.join(timeout=self.config.query_timeout)
+        completed = update_completed.wait(timeout=self.config.query_timeout)
+        elapsed_time = time.time() - start_time
         
-        if update_thread.is_alive():
-            # 更新超时，强制断开连接
-            print(f"更新超时（{self.config.query_timeout}秒），强制断开连接")
+        if not completed:
+            # 更新超时
+            print(f"更新超时！已等待 {elapsed_time:.2f} 秒，超过设定的 {self.config.query_timeout} 秒")
+            print("强制断开数据库连接...")
             self.disconnect()
-            raise Exception(f"更新超时（{self.config.query_timeout}秒）")
+            
+            # 等待线程结束
+            update_thread.join(timeout=1.0)
+            if update_thread.is_alive():
+                print("警告: 更新线程仍在运行，可能存在资源泄漏")
+            
+            raise Exception(f"更新超时（{self.config.query_timeout}秒），实际等待时间: {elapsed_time:.2f}秒")
+        
+        print(f"更新完成，总耗时: {elapsed_time:.2f} 秒")
         
         if exception_occurred:
             raise exception_occurred
@@ -362,7 +406,7 @@ class DmClient:
             # 查询指定模式的物理表，使用参数化查询
             # 达梦数据库使用ALL_OBJECTS表查询表信息
             sql = "SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = ? AND OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
-            result = self._execute_param_query(sql, (schema.upper().strip(),))
+            result = self._execute_param_query(sql, (schema.strip(),))
         else:
             # 查询当前用户模式的物理表
             # 达梦数据库使用USER_OBJECTS表查询表信息

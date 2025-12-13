@@ -27,7 +27,7 @@ class ConfigManager:
                 "user": "SYSDBA",
                 "password": "SYSDBA001",
                 "schema": "aiops",
-                "query_timeout": 300,
+                "query_timeout": 120,
                 "retry_attempts": 3,
                 "retry_delay": 5
             }
