@@ -26,7 +26,14 @@ class ConfigManager:
                 "port": 5236,
                 "user": "SYSDBA",
                 "password": "SYSDBA001",
-                "schema": "aiops"
+                "schema": "aiops",
+                "query_timeout": 120,
+                "retry_attempts": 3,
+                "retry_delay": 5,
+                "use_pool": True,
+                "pool_min_connections": 2,
+                "pool_max_connections": 10,
+                "pool_connection_timeout": 30
             }
         }
 
@@ -103,6 +110,14 @@ class ConfigManager:
         db_config.setdefault("user", "SYSDBA")
         db_config.setdefault("password", "SYSDBA001")
         db_config.setdefault("schema", "aiops")
+        db_config.setdefault("query_timeout", 120)
+        db_config.setdefault("retry_attempts", 3)
+        db_config.setdefault("retry_delay", 5)
+        # 连接池配置
+        db_config.setdefault("use_pool", True)
+        db_config.setdefault("pool_min_connections", 2)
+        db_config.setdefault("pool_max_connections", 10)
+        db_config.setdefault("pool_connection_timeout", 30)
 
         # 验证端口类型
         if not isinstance(db_config["port"], int):

@@ -1,6 +1,10 @@
 """
 达梦数据库客户端 - 真实可用版本
 需要安装 dmPython: pip install dmPython
+
+支持两种模式：
+1. 直接连接模式（默认）- 每次创建新连接
+2. 连接池模式 - 使用连接池复用连接
 """
 
 import typing as t
@@ -19,6 +23,11 @@ class DmConfig:
     query_timeout: int = 120  # 查询超时时间（秒）
     retry_attempts: int = 3   # 重试次数
     retry_delay: int = 5      # 重试延迟（秒）
+    # 连接池配置
+    use_pool: bool = True           # 是否使用连接池
+    pool_min_connections: int = 2   # 最小连接数
+    pool_max_connections: int = 10  # 最大连接数
+    pool_connection_timeout: int = 30  # 获取连接超时（秒）
 
     @classmethod
     def from_config_file(cls):
@@ -32,17 +41,29 @@ class DmConfig:
             schema=db_config.get("schema", "aiops"),
             query_timeout=db_config.get("query_timeout", 120),
             retry_attempts=db_config.get("retry_attempts", 3),
-            retry_delay=db_config.get("retry_delay", 5)
+            retry_delay=db_config.get("retry_delay", 5),
+            use_pool=db_config.get("use_pool", True),
+            pool_min_connections=db_config.get("pool_min_connections", 2),
+            pool_max_connections=db_config.get("pool_max_connections", 10),
+            pool_connection_timeout=db_config.get("pool_connection_timeout", 30)
         )
 
 
 class DmClient:
-    """达梦数据库客户端 - 真实实现"""
+    """达梦数据库客户端 - 真实实现
+    
+    支持两种连接模式：
+    1. 直接连接模式（use_pool=False）- 每次创建新连接
+    2. 连接池模式（use_pool=True）- 使用连接池复用连接
+    """
 
     def __init__(self, config: DmConfig):
         self.config = config
         self.connection = None
         self.driver = None
+        self._pool = None
+        self._pooled_conn = None
+        self._use_pool = config.use_pool
 
     def _get_driver(self):
         """获取达梦数据库驱动"""
@@ -57,8 +78,53 @@ class DmClient:
                 return False
         return True
 
+    def _init_pool(self):
+        """初始化连接池"""
+        if self._pool is not None:
+            return
+            
+        from dm_pool import DmConnectionPool, PoolConfig, get_pool
+        
+        db_config = {
+            'host': self.config.host,
+            'port': self.config.port,
+            'user': self.config.user,
+            'password': self.config.password,
+            'schema': self.config.schema
+        }
+        
+        pool_config = PoolConfig(
+            min_connections=self.config.pool_min_connections,
+            max_connections=self.config.pool_max_connections,
+            connection_timeout=self.config.pool_connection_timeout
+        )
+        
+        self._pool = get_pool(db_config, pool_config)
+
     def connect(self) -> bool:
         """连接到达梦数据库"""
+        # 使用连接池模式
+        if self._use_pool:
+            return self._connect_with_pool()
+        
+        # 直接连接模式
+        return self._connect_direct()
+    
+    def _connect_with_pool(self) -> bool:
+        """使用连接池获取连接"""
+        try:
+            self._init_pool()
+            self._pooled_conn = self._pool.get_connection(self.config.pool_connection_timeout)
+            self.connection = self._pooled_conn.connection
+            print(f"从连接池获取连接成功，池状态: {self._pool.get_stats()}")
+            return True
+        except Exception as e:
+            print(f"从连接池获取连接失败: {e}")
+            self.connection = None
+            return False
+
+    def _connect_direct(self) -> bool:
+        """直接连接到达梦数据库（不使用连接池）"""
         if not self._get_driver():
             return False
 
@@ -519,6 +585,19 @@ class DmClient:
 
     def disconnect(self):
         """断开数据库连接"""
+        # 连接池模式：释放连接回池
+        if self._use_pool and self._pooled_conn:
+            try:
+                self._pool.release_connection(self._pooled_conn)
+                print("连接已释放回连接池")
+            except Exception as e:
+                print(f"释放连接到池时出错: {e}")
+            finally:
+                self._pooled_conn = None
+                self.connection = None
+            return
+        
+        # 直接连接模式：关闭连接
         if self.connection:
             try:
                 self.connection.close()
