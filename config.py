@@ -33,7 +33,7 @@ class ConfigManager:
                 "use_pool": True,
                 "pool_min_connections": 2,
                 "pool_max_connections": 10,
-                "pool_connection_timeout": 30
+                "pool_connection_timeout": 120
             }
         }
 
