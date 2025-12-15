@@ -1,0 +1,4 @@
+# file: D:\workcode\测试demo\dm-mcp\core\response.py
+# hypothesis_version: 6.148.7
+
+[0.0, 'data', 'error', 'error_type', 'metadata', 'operation', 'row_count', 'success', 'timestamp']
