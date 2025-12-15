@@ -86,11 +86,11 @@ class DmConnectionPool:
     
     def __new__(cls, *args, **kwargs):
         """单例模式"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+        with cls._lock:
+            if cls._instance is None:
+                instance = super().__new__(cls)
+                instance._initialized = False
+                cls._instance = instance
         return cls._instance
     
     def __init__(self, db_config: dict = None, pool_config: PoolConfig = None):
@@ -131,67 +131,34 @@ class DmConnectionPool:
         return self._driver
     
     def _create_connection(self) -> PooledConnection:
-        """创建新的数据库连接（带超时控制）"""
-        driver = self._get_driver()
-        
-        host = self.db_config.get('host', 'localhost')
-        port = self.db_config.get('port', 5236)
-        user = self.db_config.get('user', 'SYSDBA')
-        password = self.db_config.get('password', 'SYSDBA')
-        connect_timeout = self.pool_config.connection_timeout
-        
-        # 使用线程实现连接超时控制
-        conn_result = {'conn': None, 'error': None}
-        connect_done = threading.Event()
-        
-        def connect_worker():
-            try:
-                conn_result['conn'] = driver.connect(user, password, host, port)
-            except Exception as e:
-                conn_result['error'] = e
-            finally:
-                connect_done.set()
-        
-        connect_thread = threading.Thread(target=connect_worker, daemon=True)
-        connect_thread.start()
-        
-        # 等待连接完成或超时
-        if not connect_done.wait(timeout=connect_timeout):
-            raise TimeoutError(f"创建数据库连接超时（{connect_timeout}秒），请检查数据库服务是否可用")
-        
-        if conn_result['error']:
-            raise conn_result['error']
-        
-        if conn_result['conn'] is None:
-            raise RuntimeError("创建连接失败，未知错误")
-        
-        pooled_conn = PooledConnection(conn_result['conn'], self)
-        
+        """创建新的数据库连接（带超时控制，会增加连接计数）"""
         with self._pool_lock:
             self._connection_count += 1
-            self._all_connections.append(pooled_conn)
         
-        print(f"创建新连接，当前连接数: {self._connection_count}")
-        return pooled_conn
+        try:
+            conn = self._create_connection_internal()
+            print(f"创建新连接，当前连接数: {self._connection_count}")
+            return conn
+        except Exception as e:
+            with self._pool_lock:
+                self._connection_count = max(0, self._connection_count - 1)
+            raise e
     
     def initialize(self):
-        """初始化连接池，创建最小连接数"""
+        """初始化连接池（懒加载模式，不阻塞）"""
         if self._closed:
             raise RuntimeError("连接池已关闭")
             
-        print(f"初始化连接池，创建 {self.pool_config.min_connections} 个初始连接...")
+        print(f"连接池初始化: min={self.pool_config.min_connections}, max={self.pool_config.max_connections}")
+        print("使用懒加载模式，连接将在首次使用时创建")
         
-        for _ in range(self.pool_config.min_connections):
-            try:
-                conn = self._create_connection()
-                self._pool.put(conn, block=False)
-            except Exception as e:
-                print(f"创建初始连接失败: {e}")
+        # 不在初始化时创建连接，改为懒加载
+        # 这样可以避免数据库不可达时阻塞
         
         # 启动健康检查线程
         self._start_health_check()
         
-        print(f"连接池初始化完成，当前可用连接: {self._pool.qsize()}")
+        print(f"连接池初始化完成")
     
     def _start_health_check(self):
         """启动健康检查线程"""
@@ -302,38 +269,83 @@ class DmConnectionPool:
             if elapsed >= timeout:
                 raise TimeoutError(f"获取连接超时（{timeout}秒）")
             
+            # 先尝试从池中获取
             try:
-                # 尝试从池中获取
-                remaining = max(0.1, timeout - elapsed)
-                conn = self._pool.get(timeout=min(1, remaining))
-                
-                # 检查连接是否有效
-                if conn.is_healthy():
+                conn = self._pool.get_nowait()
+                if conn.connection is not None:
                     conn.in_use = True
                     conn.last_used_at = time.time()
                     return conn
                 else:
-                    # 连接无效，移除并继续
                     self._remove_connection(conn)
-                    continue
-                    
             except queue.Empty:
-                # 池为空，尝试创建新连接
-                with self._pool_lock:
-                    if self._connection_count < self.pool_config.max_connections:
-                        try:
-                            conn = self._create_connection()
-                            conn.in_use = True
-                            return conn
-                        except Exception as e:
-                            print(f"创建连接失败: {e}")
-                            continue
-                
-                # 已达最大连接数，等待
-                time.sleep(0.1)
+                pass
+            
+            # 池为空，检查是否可以创建新连接
+            should_create = False
+            with self._pool_lock:
+                if self._connection_count < self.pool_config.max_connections:
+                    should_create = True
+                    self._connection_count += 1  # 预占位
+            
+            if should_create:
+                try:
+                    conn = self._create_connection_internal()
+                    conn.in_use = True
+                    return conn
+                except Exception as e:
+                    # 创建失败，释放预占位
+                    with self._pool_lock:
+                        self._connection_count = max(0, self._connection_count - 1)
+                    if isinstance(e, TimeoutError):
+                        raise e
+                    raise RuntimeError(f"无法创建数据库连接: {e}")
+            
+            # 已达最大连接数，等待一下再试
+            time.sleep(0.1)
+    
+    def _create_connection_internal(self) -> PooledConnection:
+        """创建连接的内部方法（不增加计数，由调用者管理）"""
+        driver = self._get_driver()
+        
+        host = self.db_config.get('host', 'localhost')
+        port = self.db_config.get('port', 5236)
+        user = self.db_config.get('user', 'SYSDBA')
+        password = self.db_config.get('password', 'SYSDBA')
+        connect_timeout = self.pool_config.connection_timeout
+        
+        conn_result = {'conn': None, 'error': None}
+        connect_done = threading.Event()
+        
+        def connect_worker():
+            try:
+                conn_result['conn'] = driver.connect(user, password, host, port)
+            except Exception as e:
+                conn_result['error'] = e
+            finally:
+                connect_done.set()
+        
+        connect_thread = threading.Thread(target=connect_worker, daemon=True)
+        connect_thread.start()
+        
+        if not connect_done.wait(timeout=connect_timeout):
+            raise TimeoutError(f"创建数据库连接超时（{connect_timeout}秒）")
+        
+        if conn_result['error']:
+            raise conn_result['error']
+        
+        if conn_result['conn'] is None:
+            raise RuntimeError("创建连接失败")
+        
+        pooled_conn = PooledConnection(conn_result['conn'], self)
+        
+        with self._pool_lock:
+            self._all_connections.append(pooled_conn)
+        
+        return pooled_conn
     
     def release_connection(self, conn: PooledConnection):
-        """释放连接回池
+        """释放连接回池（不做健康检查，避免阻塞）
         
         Args:
             conn: 要释放的连接
@@ -348,11 +360,8 @@ class DmConnectionPool:
             self._remove_connection(conn)
             return
         
-        # 检查连接是否健康
-        if not conn.is_healthy():
-            self._remove_connection(conn)
-            return
-        
+        # 不在释放时检查健康状态，避免阻塞
+        # 健康检查由后台线程定期执行
         try:
             self._pool.put(conn, block=False)
         except queue.Full:
@@ -386,8 +395,10 @@ class DmConnectionPool:
             except queue.Empty:
                 break
         
-        # 重置单例
-        DmConnectionPool._instance = None
+        # 重置单例和初始化标志
+        with DmConnectionPool._lock:
+            DmConnectionPool._instance = None
+        self._initialized = False
         
         print("连接池已关闭")
     
