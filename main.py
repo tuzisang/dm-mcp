@@ -253,12 +253,46 @@ def dm_query(sql: str) -> dict:
                 additional_info={"error_type": type(e).__name__}
             )
         }
+    except TimeoutError as e:
+        # 连接池获取连接超时
+        return {
+            "success": False,
+            "error": f"获取数据库连接超时: {str(e)}",
+            "sql": sql,
+            "metadata": create_response_metadata(
+                operation="dm_query",
+                success=False,
+                execution_time=time.time() - start_time,
+                additional_info={"error_type": "pool_timeout_error"}
+            )
+        }
+    except RuntimeError as e:
+        # 连接池已关闭等运行时错误
+        error_msg = str(e)
+        if "连接池" in error_msg or "pool" in error_msg.lower():
+            error_type = "pool_error"
+        else:
+            error_type = "runtime_error"
+        return {
+            "success": False,
+            "error": f"运行时错误: {error_msg}",
+            "sql": sql,
+            "metadata": create_response_metadata(
+                operation="dm_query",
+                success=False,
+                execution_time=time.time() - start_time,
+                additional_info={"error_type": error_type}
+            )
+        }
     except Exception as e:
         # 检查是否是超时错误
         error_msg = str(e)
         if "超时" in error_msg or "timeout" in error_msg.lower():
             error_type = "timeout_error"
             error_description = f"查询超时: {error_msg}"
+        elif "连接池" in error_msg or "pool" in error_msg.lower():
+            error_type = "pool_error"
+            error_description = f"连接池错误: {error_msg}"
         else:
             error_type = "unexpected_error"
             error_description = f"查询执行过程中发生意外错误: {error_msg}"
@@ -326,12 +360,27 @@ def dm_connect() -> dict:
                 additional_info={"error_type": "connection_error"}
             )
         }
+    except TimeoutError as e:
+        return {
+            "success": False,
+            "error": f"获取数据库连接超时: {str(e)}",
+            "message": "数据库连接测试失败（连接池超时）",
+            "metadata": create_response_metadata(
+                operation="dm_connect",
+                success=False,
+                execution_time=time.time() - start_time,
+                additional_info={"error_type": "pool_timeout_error"}
+            )
+        }
     except Exception as e:
-        # 检查是否是超时错误
+        # 检查是否是超时错误或连接池错误
         error_msg = str(e)
         if "超时" in error_msg or "timeout" in error_msg.lower():
             error_type = "timeout_error"
             error_description = f"连接测试超时: {error_msg}"
+        elif "连接池" in error_msg or "pool" in error_msg.lower():
+            error_type = "pool_error"
+            error_description = f"连接池错误: {error_msg}"
         else:
             error_type = "unexpected_error"
             error_description = f"连接测试过程中发生意外错误: {error_msg}"
@@ -928,6 +977,99 @@ def dm_update_config(host: str = None, port: int = None, user: str = None,
             "config_file": config_manager.get_config_file_path() if 'config_manager' in locals() else "未知",
             "metadata": create_response_metadata(
                 operation="dm_update_config",
+                success=False,
+                execution_time=time.time() - start_time,
+                additional_info={"error_type": "unexpected_error"}
+            )
+        }
+
+
+# 添加连接池状态查询工具
+@mcp.tool()
+def dm_pool_status() -> dict:
+    """
+    获取数据库连接池状态信息。
+
+    用途: 诊断连接池问题、监控连接使用情况、排查连接泄漏。
+
+    Returns:
+        dict: {success, pool_stats, pool_enabled, metadata}
+              pool_stats包含: total_connections, available_connections, in_use_connections等
+    """
+    start_time = time.time()
+
+    try:
+        config = get_dm_config()
+        
+        if not config.use_pool:
+            return {
+                "success": True,
+                "pool_enabled": False,
+                "message": "连接池未启用，当前使用直接连接模式",
+                "metadata": create_response_metadata(
+                    operation="dm_pool_status",
+                    success=True,
+                    execution_time=time.time() - start_time
+                )
+            }
+        
+        # 尝试获取连接池状态
+        try:
+            from dm_pool import get_pool, PoolConfig
+            
+            db_config = {
+                'host': config.host,
+                'port': config.port,
+                'user': config.user,
+                'password': config.password,
+                'schema': config.schema
+            }
+            
+            pool_config = PoolConfig(
+                min_connections=config.pool_min_connections,
+                max_connections=config.pool_max_connections,
+                connection_timeout=config.pool_connection_timeout
+            )
+            
+            pool = get_pool(db_config, pool_config)
+            stats = pool.get_stats()
+            
+            return {
+                "success": True,
+                "pool_enabled": True,
+                "pool_stats": stats,
+                "config": {
+                    "min_connections": config.pool_min_connections,
+                    "max_connections": config.pool_max_connections,
+                    "connection_timeout": config.pool_connection_timeout
+                },
+                "metadata": create_response_metadata(
+                    operation="dm_pool_status",
+                    success=True,
+                    execution_time=time.time() - start_time,
+                    additional_info={"pool_enabled": True}
+                )
+            }
+        except Exception as e:
+            return {
+                "success": True,
+                "pool_enabled": True,
+                "pool_stats": None,
+                "message": f"连接池已启用但尚未初始化: {str(e)}",
+                "metadata": create_response_metadata(
+                    operation="dm_pool_status",
+                    success=True,
+                    execution_time=time.time() - start_time,
+                    additional_info={"pool_initialized": False}
+                )
+            }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"获取连接池状态失败: {str(e)}",
+            "metadata": create_response_metadata(
+                operation="dm_pool_status",
                 success=False,
                 execution_time=time.time() - start_time,
                 additional_info={"error_type": "unexpected_error"}
