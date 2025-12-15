@@ -35,18 +35,34 @@ class PooledConnection:
         self.last_used_at = time.time()
         self.in_use = False
     
-    def is_healthy(self) -> bool:
-        """检查连接是否健康"""
+    def is_healthy(self, timeout: int = 5) -> bool:
+        """检查连接是否健康（带超时控制）"""
         if self.connection is None:
             return False
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute("SELECT 1 FROM DUAL")
-            cursor.fetchone()
-            cursor.close()
-            return True
-        except Exception:
-            return False
+        
+        result = {'healthy': False}
+        check_done = threading.Event()
+        
+        def check_worker():
+            try:
+                cursor = self.connection.cursor()
+                cursor.execute("SELECT 1 FROM DUAL")
+                cursor.fetchone()
+                cursor.close()
+                result['healthy'] = True
+            except Exception:
+                result['healthy'] = False
+            finally:
+                check_done.set()
+        
+        check_thread = threading.Thread(target=check_worker, daemon=True)
+        check_thread.start()
+        
+        # 等待检查完成或超时
+        if not check_done.wait(timeout=timeout):
+            return False  # 超时视为不健康
+        
+        return result['healthy']
     
     def is_expired(self, idle_timeout: int) -> bool:
         """检查连接是否过期"""
@@ -115,16 +131,41 @@ class DmConnectionPool:
         return self._driver
     
     def _create_connection(self) -> PooledConnection:
-        """创建新的数据库连接"""
+        """创建新的数据库连接（带超时控制）"""
         driver = self._get_driver()
         
         host = self.db_config.get('host', 'localhost')
         port = self.db_config.get('port', 5236)
         user = self.db_config.get('user', 'SYSDBA')
         password = self.db_config.get('password', 'SYSDBA')
+        connect_timeout = self.pool_config.connection_timeout
         
-        conn = driver.connect(user, password, host, port)
-        pooled_conn = PooledConnection(conn, self)
+        # 使用线程实现连接超时控制
+        conn_result = {'conn': None, 'error': None}
+        connect_done = threading.Event()
+        
+        def connect_worker():
+            try:
+                conn_result['conn'] = driver.connect(user, password, host, port)
+            except Exception as e:
+                conn_result['error'] = e
+            finally:
+                connect_done.set()
+        
+        connect_thread = threading.Thread(target=connect_worker, daemon=True)
+        connect_thread.start()
+        
+        # 等待连接完成或超时
+        if not connect_done.wait(timeout=connect_timeout):
+            raise TimeoutError(f"创建数据库连接超时（{connect_timeout}秒），请检查数据库服务是否可用")
+        
+        if conn_result['error']:
+            raise conn_result['error']
+        
+        if conn_result['conn'] is None:
+            raise RuntimeError("创建连接失败，未知错误")
+        
+        pooled_conn = PooledConnection(conn_result['conn'], self)
         
         with self._pool_lock:
             self._connection_count += 1
