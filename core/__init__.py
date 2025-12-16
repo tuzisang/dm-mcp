@@ -21,6 +21,14 @@ from .validators import (
     validate_optional_schema,
 )
 from .decorators import mcp_tool_handler
+from .cache import (
+    mcp_cache,
+    clear_cache,
+    get_cache_stats,
+    CacheEntry,
+    CacheStore,
+    generate_cache_key,
+)
 
 __all__ = [
     # Exceptions
@@ -38,4 +46,11 @@ __all__ = [
     "validate_optional_schema",
     # Decorators
     "mcp_tool_handler",
+    # Cache
+    "mcp_cache",
+    "clear_cache",
+    "get_cache_stats",
+    "CacheEntry",
+    "CacheStore",
+    "generate_cache_key",
 ]

@@ -131,17 +131,27 @@ class DmConnectionPool:
         return self._driver
     
     def _create_connection(self) -> PooledConnection:
-        """创建新的数据库连接（带超时控制，会增加连接计数）"""
+        """创建新的数据库连接（带超时控制，会增加连接计数）
+        
+        注意：此方法会增加连接计数，调用者不应再次增加计数
+        """
+        should_increment = False
         with self._pool_lock:
-            self._connection_count += 1
+            # 只有在未达到最大连接数时才增加计数
+            if self._connection_count < self.pool_config.max_connections:
+                self._connection_count += 1
+                should_increment = True
+            else:
+                raise RuntimeError(f"已达最大连接数 {self.pool_config.max_connections}")
         
         try:
             conn = self._create_connection_internal()
             print(f"创建新连接，当前连接数: {self._connection_count}")
             return conn
         except Exception as e:
-            with self._pool_lock:
-                self._connection_count = max(0, self._connection_count - 1)
+            if should_increment:
+                with self._pool_lock:
+                    self._connection_count = max(0, self._connection_count - 1)
             raise e
     
     def initialize(self):
@@ -188,14 +198,17 @@ class DmConnectionPool:
             self._stop_health_check.wait(self.pool_config.health_check_interval)
     
     def _check_and_clean_connections(self):
-        """检查并清理无效连接"""
+        """检查并清理无效连接（带超时保护）"""
         connections_to_check = []
         
-        # 从池中取出所有连接进行检查
-        while True:
+        # 从池中取出所有连接进行检查，限制最大数量防止阻塞
+        max_check = self.pool_config.max_connections
+        checked = 0
+        while checked < max_check:
             try:
                 conn = self._pool.get_nowait()
                 connections_to_check.append(conn)
+                checked += 1
             except queue.Empty:
                 break
         
@@ -213,8 +226,8 @@ class DmConnectionPool:
                     self._remove_connection(conn)
                     continue
             
-            # 检查连接健康
-            if not conn.is_healthy():
+            # 检查连接健康（使用较短的超时时间避免阻塞）
+            if not conn.is_healthy(timeout=3):
                 print("关闭不健康的连接")
                 self._remove_connection(conn)
                 continue
@@ -228,8 +241,11 @@ class DmConnectionPool:
             except queue.Full:
                 self._remove_connection(conn)
         
-        # 补充连接到最小数量
-        while self._connection_count < self.pool_config.min_connections:
+        # 补充连接到最小数量（限制尝试次数防止无限循环）
+        attempts = 0
+        max_attempts = self.pool_config.min_connections
+        while self._connection_count < self.pool_config.min_connections and attempts < max_attempts:
+            attempts += 1
             try:
                 new_conn = self._create_connection()
                 self._pool.put(new_conn, block=False)
@@ -263,11 +279,14 @@ class DmConnectionPool:
             
         timeout = timeout or self.pool_config.connection_timeout
         start_time = time.time()
+        max_attempts = int(timeout / 0.1) + 1  # 防止无限循环的安全措施
+        attempt = 0
         
-        while True:
+        while attempt < max_attempts:
+            attempt += 1
             elapsed = time.time() - start_time
             if elapsed >= timeout:
-                raise TimeoutError(f"获取连接超时（{timeout}秒）")
+                raise TimeoutError(f"获取连接超时（{timeout}秒），已尝试 {attempt} 次")
             
             # 先尝试从池中获取
             try:
@@ -278,6 +297,7 @@ class DmConnectionPool:
                     return conn
                 else:
                     self._remove_connection(conn)
+                    continue  # 继续尝试获取下一个
             except queue.Empty:
                 pass
             
@@ -297,12 +317,19 @@ class DmConnectionPool:
                     # 创建失败，释放预占位
                     with self._pool_lock:
                         self._connection_count = max(0, self._connection_count - 1)
+                    # 如果是超时错误，直接抛出
                     if isinstance(e, TimeoutError):
                         raise e
-                    raise RuntimeError(f"无法创建数据库连接: {e}")
+                    # 其他错误，记录并继续尝试
+                    print(f"创建连接失败: {e}，继续尝试...")
+                    time.sleep(0.1)
+                    continue
             
             # 已达最大连接数，等待一下再试
             time.sleep(0.1)
+        
+        # 超过最大尝试次数
+        raise TimeoutError(f"获取连接超时，已达最大尝试次数 {max_attempts}")
     
     def _create_connection_internal(self) -> PooledConnection:
         """创建连接的内部方法（不增加计数，由调用者管理）"""
