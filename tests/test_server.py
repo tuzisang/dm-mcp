@@ -12,7 +12,7 @@ def test_imports():
     print("测试模块导入...")
     try:
         from main import mcp
-        from db import DmClient, DmConfig, DmConnectionPool, PoolConfig
+        from db import DmClient, DmConfig, PoolConfig
         from core.cache import mcp_cache
         from core.validators import validate_sql_query
         print("✓ 所有模块导入成功")

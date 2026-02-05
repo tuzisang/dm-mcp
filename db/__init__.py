@@ -18,7 +18,6 @@ from .config import (
     DEFAULT_CACHE_TTL,
 )
 from .client import DmClient
-from .pool import DmConnectionPool, PooledConnection, get_pool, close_pool
 
 __all__ = [
     # 配置类
@@ -35,9 +34,4 @@ __all__ = [
     'DEFAULT_CACHE_TTL',
     # 客户端
     'DmClient',
-    # 连接池
-    'DmConnectionPool',
-    'PooledConnection',
-    'get_pool',
-    'close_pool',
 ]

@@ -71,6 +71,10 @@
 - [x] 9.2 清理未使用的导入和变量
 - [x] 9.3 更新 git 忽略文件（编译后的 .class 文件）
 - [x] 9.4 提交代码并创建 PR
+- [x] 9.5 删除 db/pool.py（基于 dmPython 的旧连接池实现）
+- [x] 9.6 删除 tests/test_pool.py（旧连接池测试）
+- [x] 9.7 删除 tests/test_deadlock.py（使用旧连接池的测试）
+- [x] 9.8 移除 db/__init__.py 中对 pool 模块的导出
 
 ## 10. 安全和质量改进
 

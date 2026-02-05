@@ -1,4 +1,4 @@
-# 设计文档：jaydebeapi + HikariCP 重构
+# 设计文档：Java 守护进程 + HikariCP 重构
 
 ## Context
 
@@ -37,17 +37,19 @@
 
 ## Decisions
 
-### 决策 1：使用 Java 守护进程而非 JPype
+### 决策 1：使用 Java 守护进程（通过 stdin/stdout JSON 通信）
 
 **选择：** Java 作为长期守护进程运行，通过 stdin/stdout 与 Python 通信
 
 **理由：**
 - JPype 1.6.0 在 macOS ARM64 + Python 3.12 上有兼容性问题（`Can't find org.jpype.jar support library`）
+- jaydebeapi 依赖 JPype，存在相同问题
 - 守护进程模式避免了重复启动 Java 进程的开销
+- 直接使用 Java 原生代码，无需 Python JDBC 桥接层
 - 已验证可行（测试用例成功连接到数据库，发现 504 张表）
 
 **替代方案：**
-- JPype：在当前平台有 bug，无法使用
+- JPype/jaydebeapi：在当前平台有 bug，无法使用
 - 每次查询启动新 Java 进程：性能开销太大
 
 **权衡：**
@@ -60,12 +62,13 @@
 
 ### 决策 2：使用 HikariCP 作为连接池
 
-**选择：** HikariCP 5.1.0
+**选择：** HikariCP 4.0.3（Java 8 兼容版本）
 
 **理由：**
 - 业界性能最好的 JDBC 连接池（benchmark 验证）
 - 轻量级、配置简单
 - 与 Spring Boot、Hibernate 等框架广泛集成
+- 4.0.3 版本兼容 Java 8，适合达梦数据库环境
 
 **替代方案：**
 - DBCP2：性能较差
@@ -149,18 +152,23 @@ Java → Python: JSON 格式的查询结果（通过 stdout）
 
 ```
 db/
-├── __init__.py          # 导出 DmClient
-├── client.py            # DmClient 实现（重写）
-├── config.py            # 配置管理（新增 HikariCP 配置）
-├── pool.py              # 连接池配置（新增）
-└── java_bridge.py       # Java 桥接服务封装（新增）
+├── __init__.py          # 导出 DmClient（移除 pool 模块导出）
+├── client.py            # DmClient 实现（基于 JavaBridgeClient）
+├── config.py            # 配置管理（含 HikariCP 配置）
+├── java_bridge.py       # Java 守护进程管理模块（新增）
+├── DmJdbcBridge.java    # Java 桥接服务（新增）
+└── sql_security.py      # SQL 安全验证
 
 lib/
 ├── dm-jdbc-1.8.jar              # 达梦 JDBC 驱动
-├── HikariCP-5.1.0.jar           # HikariCP 连接池
-└── slf4j-api-2.0.16.jar         # SLF4J 日志门面
+├── HikariCP-4.0.3.jar           # HikariCP 连接池（Java 8 兼容）
+├── slf4j-api-2.0.12.jar         # SLF4J 日志门面
+└── jackson-*.jar                # JSON 序列化库
 
-test_jaydebeapi.py       # 测试用例（已验证）
+tests/
+├── test_java_bridge.py          # Java 桥接测试
+├── test_step_by_step.py         # 分步测试
+└── test_new_client.py           # 客户端测试
 ```
 
 ## Risks / Trade-offs
@@ -210,10 +218,11 @@ test_jaydebeapi.py       # 测试用例（已验证）
 
 ### Phase 2: 核心实现
 
-1. 实现 `DmClient` 类（基于 jaydebeapi）
-2. 实现 HikariCP 连接池配置
-3. 实现 subprocess 调用封装
-4. 迁移现有 7 个 MCP 工具到新实现
+1. 实现 `JavaBridgeClient` 类（管理 Java 守护进程）
+2. 编译 `DmJdbcBridge.java`（Java 桥接服务）
+3. 实现 `DmClient` 类（基于 JavaBridgeClient）
+4. 实现 HikariCP 连接池配置（在 Java 端）
+5. 迁移现有 7 个 MCP 工具到新实现
 
 ### Phase 3: 测试验证
 
