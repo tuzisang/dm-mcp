@@ -10,8 +10,10 @@ This is a DM (达梦数据库) MCP (Model Context Protocol) server project that 
 
 ### Core Components
 - **main.py**: Main MCP server entry point using FastMCP framework, defines 7 core database tools
-- **dm_client.py**: Comprehensive DM Database client wrapper with connection management, query execution, and database introspection methods
-- **config.py**: Configuration management module with ConfigManager class for handling database connection settings
+- **db/java_bridge.py**: Java 守护进程桥接服务（Python 端），包含心跳检测、超时恢复、自动重启等机制
+- **db/DmJdbcBridge.java**: Java 守护进程（Java 端），使用 HikariCP 连接池，支持心跳发送和优雅关闭
+- **db/client.py**: DmClient 数据库客户端，封装了 Java 桥接和重试逻辑
+- **db/config.py**: Configuration management module with ConfigManager class for handling database connection settings
 - **pyproject.toml**: Project configuration with dmPython dependency
 - **dm_config.json**: Runtime configuration file storing database connection parameters (auto-generated)
 
@@ -33,9 +35,36 @@ The `DmClient` class provides comprehensive database operations:
 - **Connection Management**: Automatic connection handling with configuration validation
 - **Query Operations**: `execute_query()` for SELECT statements, `execute_update()` for INSERT/UPDATE/DELETE
 - **Database Introspection**: `list_tables()`, `list_views()`, `describe_table()`, `get_view_definition()`
-- **Parameterized Queries**: Safe SQL execution with parameter binding via `_execute_param_query()`
+- **Parameterized Queries**: Safe SQL execution with parameter binding via Java bridge
 - **Context Manager Support**: Automatic resource cleanup with `with DmClient(config) as client:`
 - **Error Handling**: Comprehensive exception handling with meaningful error messages
+- **Smart Retry Logic**: 区分可重试和不可重试异常，默认重试 1 次（而非 3 次），重试延迟 1 秒（而非 5 秒）
+
+### Java Bridge Architecture (假死修复)
+项目使用 Java 守护进程桥接达梦数据库，通过 stdin/stdout 进行 JSON 通信。已实现以下关键修复：
+
+**Python 端 (db/java_bridge.py)**:
+- **非阻塞 I/O**: 使用 `threading.Thread` + `queue.Queue` 实现超时读取（默认 30 秒）
+- **心跳检测**: 监控 Java 进程健康状态，心跳间隔 15 秒
+- **自动恢复**: 检测到假死后自动重启 Java 进程并重试查询
+- **重启限制**: 5 分钟内最多重启 3 次，防止无限重启循环
+- **优雅关闭**: 先发送 `shutdown` 消息，再验证进程退出
+
+**Java 端 (db/DmJdbcBridge.java)**:
+- **心跳定时器**: 每 15 秒发送心跳消息 `{"type": "heartbeat", "timestamp": <ms>}`
+- **HikariCP 连接池**: 最大连接数 20，连接超时 60 秒
+- **连接泄漏检测**: 60 秒阈值，自动检测未关闭的连接
+- **查询超时**: Statement 查询超时 120 秒，防止长时间占用连接
+- **优雅关闭**: JVM 关闭钩子确保连接池完全关闭
+- **智能类型转换**: BLOB→Base64, CLOB→String, TIMESTAMP→ISO 8601
+- **大对象保护**: BLOB 限制 10MB, CLOB 限制 1MB，防止 OOM
+- **类型转换降级**: 转换失败时返回错误字符串而非崩溃
+
+**关键改进**:
+- 假死检测时间从最长 6 分钟降至 30-60 秒
+- 连接资源正确释放，防止连接池耗尽
+- 向后兼容旧配置文件
+- 支持 BLOB/CLOB/LONG/TIMESTAMP 等所有达梦数据库类型
 
 ## Development Commands
 
@@ -74,6 +103,26 @@ Default connection settings are automatically stored in `dm_config.json`:
 - User: SYSDBA
 - Password: SYSDBA001
 - Schema: aiops
+
+**新增配置参数** (向后兼容):
+```json
+{
+  "database": {
+    "io_timeout": 30,
+    "health_check_interval": 15,
+    "max_retries": 1,
+    "pool_max_connections": 20,
+    "pool_connection_timeout": 60000
+  }
+}
+```
+
+**配置参数说明**:
+- `io_timeout`: I/O 操作超时时间（秒），范围 5-300，默认 30
+- `health_check_interval`: 心跳检测间隔（秒），范围 5-60，默认 15
+- `max_retries`: 最大重试次数，范围 0-10，默认 1（原为 3）
+- `pool_max_connections`: 连接池最大连接数，默认 20（原为 10）
+- `pool_connection_timeout`: 连接获取超时（毫秒），默认 60000（原为 30000）
 
 ### Configuration Management
 - **Auto-creation**: Configuration file is automatically generated with defaults on first run
@@ -173,6 +222,47 @@ view_def = client.get_view_definition("view_name", "schema_name")
 - Only SELECT queries are allowed for security
 - All input parameters are validated to prevent SQL injection
 - Connection management is handled automatically
+
+### JDBC Type Conversion
+
+The Java bridge automatically handles DM Database JDBC type conversion to ensure JSON serialization:
+
+#### Supported Types
+| JDBC Type | Java Type | JSON Format | Example |
+|-----------|-----------|-------------|---------|
+| BLOB | byte[] → Base64 | String | `"SGVsbG8gV29ybGQ="` |
+| CLOB/LONG/TEXT | String | String | `"long text..."` |
+| TIMESTAMP/DATE | String (ISO 8601) | String | `"2026-02-05 18:01:09"` |
+| DECIMAL/NUMERIC | BigDecimal | Number | `123.456789` |
+| VARCHAR/CHAR | String | String | `"text"` |
+| INTEGER/SMALLINT | Integer | Number | `42` |
+| BIGINT | Long | Number | `1234567890` |
+
+#### Size Limits
+- **BLOB**: 10MB limit, larger values truncated with warning suffix `(truncated from XX.XXMB)`
+- **CLOB/LONG/TEXT**: 1MB limit, larger values truncated with warning suffix `(truncated)`
+
+#### Error Handling
+- Type conversion failures return error string: `"<类型转换失败: <error message>>"`
+- Errors are logged to stderr but don't crash the query
+- NULL values handled correctly (return `null` in JSON)
+
+#### Column Type Metadata
+Query responses include `columnTypes` array with JDBC type names:
+```json
+{
+  "success": true,
+  "columns": ["ID", "NAME", "DATA"],
+  "columnTypes": ["INTEGER", "VARCHAR2", "BLOB"],
+  "rows": [[1, "test", "base64data..."]]
+}
+```
+
+#### Important Notes
+- BLOB fields are Base64 encoded and may be large
+- CLOB fields over 1MB are truncated to prevent OOM
+- TIMESTAMP fields are returned as strings in database's default format
+- For large objects, consider using dedicated export tools rather than SQL queries
 
 ## Testing
 

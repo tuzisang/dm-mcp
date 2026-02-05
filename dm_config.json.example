@@ -1,0 +1,22 @@
+{
+  "database": {
+    "host": "192.168.2.38",
+    "port": 5236,
+    "user": "SYSDBA",
+    "password": "SYSDBA001",
+    "schema": "aiops",
+    "query_timeout": 120,
+    "retry_attempts": 3,
+    "retry_delay": 5,
+    "use_pool": true,
+    "pool_min_connections": 2,
+    "pool_max_connections": 20,
+    "pool_connection_timeout": 60000,
+    "pool_idle_timeout": 300,
+    "pool_health_check_interval": 60,
+    "cache_ttl": 120.0,
+    "io_timeout": 30,
+    "health_check_interval": 15,
+    "max_retries": 1
+  }
+}

@@ -24,11 +24,17 @@ DEFAULT_QUERY_TIMEOUT = 120
 DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY = 5
 
+# I/O 超时和健康检查配置
+DEFAULT_IO_TIMEOUT = 30  # I/O 操作超时（秒）
+DEFAULT_HEALTH_CHECK_INTERVAL = 15  # 心跳检测间隔（秒）
+DEFAULT_MAX_RETRIES = 1  # 最大重试次数
+DEFAULT_RETRY_DELAY_NEW = 1  # 重试延迟（秒）
+
 # 连接池配置
 DEFAULT_USE_POOL = True
 DEFAULT_POOL_MIN_CONNECTIONS = 2
-DEFAULT_POOL_MAX_CONNECTIONS = 10
-DEFAULT_POOL_CONNECTION_TIMEOUT = 30
+DEFAULT_POOL_MAX_CONNECTIONS = 20  # 增加默认最大连接数 10→20
+DEFAULT_POOL_CONNECTION_TIMEOUT = 60000  # 连接超时（毫秒）30秒→60秒
 DEFAULT_POOL_IDLE_TIMEOUT = 300
 DEFAULT_POOL_HEALTH_CHECK_INTERVAL = 60
 
@@ -53,6 +59,10 @@ class DmConfig:
     pool_min_connections: int = DEFAULT_POOL_MIN_CONNECTIONS
     pool_max_connections: int = DEFAULT_POOL_MAX_CONNECTIONS
     pool_connection_timeout: int = DEFAULT_POOL_CONNECTION_TIMEOUT
+    # 新增字段：I/O 超时和健康检查
+    io_timeout: int = DEFAULT_IO_TIMEOUT
+    health_check_interval: int = DEFAULT_HEALTH_CHECK_INTERVAL
+    max_retries: int = DEFAULT_MAX_RETRIES
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> 'DmConfig':
@@ -69,7 +79,10 @@ class DmConfig:
             use_pool=config.get("use_pool", DEFAULT_USE_POOL),
             pool_min_connections=config.get("pool_min_connections", DEFAULT_POOL_MIN_CONNECTIONS),
             pool_max_connections=config.get("pool_max_connections", DEFAULT_POOL_MAX_CONNECTIONS),
-            pool_connection_timeout=config.get("pool_connection_timeout", DEFAULT_POOL_CONNECTION_TIMEOUT)
+            pool_connection_timeout=config.get("pool_connection_timeout", DEFAULT_POOL_CONNECTION_TIMEOUT),
+            io_timeout=config.get("io_timeout", DEFAULT_IO_TIMEOUT),
+            health_check_interval=config.get("health_check_interval", DEFAULT_HEALTH_CHECK_INTERVAL),
+            max_retries=config.get("max_retries", DEFAULT_MAX_RETRIES)
         )
 
     @classmethod
@@ -83,17 +96,23 @@ class PoolConfig:
     """连接池配置"""
     min_connections: int = DEFAULT_POOL_MIN_CONNECTIONS
     max_connections: int = DEFAULT_POOL_MAX_CONNECTIONS
-    connection_timeout: int = DEFAULT_POOL_CONNECTION_TIMEOUT
+    connection_timeout: int = DEFAULT_POOL_CONNECTION_TIMEOUT  # 毫秒
     idle_timeout: int = DEFAULT_POOL_IDLE_TIMEOUT
     health_check_interval: int = DEFAULT_POOL_HEALTH_CHECK_INTERVAL
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> 'PoolConfig':
         """从字典创建配置对象"""
+        connection_timeout = config.get("pool_connection_timeout", DEFAULT_POOL_CONNECTION_TIMEOUT)
+
+        # 向后兼容：如果值小于 1000，认为是秒，转换为毫秒
+        if connection_timeout < 1000:
+            connection_timeout = connection_timeout * 1000
+
         return cls(
             min_connections=config.get("pool_min_connections", DEFAULT_POOL_MIN_CONNECTIONS),
             max_connections=config.get("pool_max_connections", DEFAULT_POOL_MAX_CONNECTIONS),
-            connection_timeout=config.get("pool_connection_timeout", DEFAULT_POOL_CONNECTION_TIMEOUT),
+            connection_timeout=connection_timeout,
             idle_timeout=config.get("pool_idle_timeout", DEFAULT_POOL_IDLE_TIMEOUT),
             health_check_interval=config.get("pool_health_check_interval", DEFAULT_POOL_HEALTH_CHECK_INTERVAL)
         )
@@ -137,7 +156,11 @@ class ConfigManager:
                 "pool_connection_timeout": DEFAULT_POOL_CONNECTION_TIMEOUT,
                 "pool_idle_timeout": DEFAULT_POOL_IDLE_TIMEOUT,
                 "pool_health_check_interval": DEFAULT_POOL_HEALTH_CHECK_INTERVAL,
-                "cache_ttl": DEFAULT_CACHE_TTL
+                "cache_ttl": DEFAULT_CACHE_TTL,
+                # 新增字段：I/O 超时和健康检查
+                "io_timeout": DEFAULT_IO_TIMEOUT,
+                "health_check_interval": DEFAULT_HEALTH_CHECK_INTERVAL,
+                "max_retries": DEFAULT_MAX_RETRIES
             }
         }
 
@@ -183,7 +206,7 @@ class ConfigManager:
 
         db = config["database"]
         defaults = self._get_default_config()["database"]
-        
+
         for key, default_value in defaults.items():
             db.setdefault(key, default_value)
 
@@ -195,6 +218,33 @@ class ConfigManager:
                 db["port"] = DEFAULT_DB_PORT
         if not (1 <= db["port"] <= 65535):
             db["port"] = DEFAULT_DB_PORT
+
+        # 验证 io_timeout（5-300 秒）
+        if not isinstance(db["io_timeout"], int):
+            try:
+                db["io_timeout"] = int(db["io_timeout"])
+            except (ValueError, TypeError):
+                db["io_timeout"] = DEFAULT_IO_TIMEOUT
+        if not (5 <= db["io_timeout"] <= 300):
+            db["io_timeout"] = DEFAULT_IO_TIMEOUT
+
+        # 验证 health_check_interval（5-60 秒）
+        if not isinstance(db["health_check_interval"], int):
+            try:
+                db["health_check_interval"] = int(db["health_check_interval"])
+            except (ValueError, TypeError):
+                db["health_check_interval"] = DEFAULT_HEALTH_CHECK_INTERVAL
+        if not (5 <= db["health_check_interval"] <= 60):
+            db["health_check_interval"] = DEFAULT_HEALTH_CHECK_INTERVAL
+
+        # 验证 max_retries（0-10 次）
+        if not isinstance(db["max_retries"], int):
+            try:
+                db["max_retries"] = int(db["max_retries"])
+            except (ValueError, TypeError):
+                db["max_retries"] = DEFAULT_MAX_RETRIES
+        if not (0 <= db["max_retries"] <= 10):
+            db["max_retries"] = DEFAULT_MAX_RETRIES
 
         return config
 

@@ -30,7 +30,7 @@ class DmClient:
         self.config = config
         self._java_bridge = None
 
-        # 构建数据库配置字典
+        # 构建数据库配置字典（包含新的配置参数）
         self._db_config = {
             'host': config.host,
             'port': config.port,
@@ -40,7 +40,10 @@ class DmClient:
             'query_timeout': config.query_timeout,
             'pool_min_connections': config.pool_min_connections,
             'pool_max_connections': config.pool_max_connections,
-            'pool_connection_timeout': config.pool_connection_timeout
+            'pool_connection_timeout': config.pool_connection_timeout,
+            'io_timeout': config.io_timeout,
+            'health_check_interval': config.health_check_interval,
+            'max_retries': config.max_retries
         }
 
     def _get_bridge(self):
@@ -263,7 +266,11 @@ class DmClient:
 
     def _execute_with_retry(self, func, *args, **kwargs):
         """
-        通用重试机制
+        通用重试机制（优化版）
+
+        - 使用 max_retries 而非 retry_attempts（默认 1 次而非 3 次）
+        - 重试延迟从 5 秒降至 1 秒
+        - 智能判断异常是否可重试
 
         Args:
             func: 要执行的函数
@@ -276,22 +283,111 @@ class DmClient:
         Raises:
             最后一次执行的异常
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         last_exception = None
-        for attempt in range(self.config.retry_attempts + 1):
+        start_time = time.time()
+
+        # 使用 max_retries 而非 retry_attempts（默认 1 次而非 3 次）
+        max_retries = self.config.max_retries
+        retry_delay = 1  # 固定 1 秒延迟（而非 5 秒）
+
+        for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
-                    # 重试前等待
-                    time.sleep(self.config.retry_delay)
+                    # 重试前等待（1 秒而非 5 秒）
+                    logger.info(f"Retry attempt {attempt}/{max_retries} after {retry_delay}s delay")
+                    time.sleep(retry_delay)
                 return func(*args, **kwargs)
             except Exception as e:
                 last_exception = e
-                if attempt >= self.config.retry_attempts:
+                error_msg = str(e).lower()
+
+                # 判断是否为可重试异常
+                is_retryable = self._is_retryable_error(e, error_msg)
+
+                if attempt >= max_retries or not is_retryable:
+                    # 不可重试或已达到最大重试次数
                     break
+
+                # 记录重试事件
+                total_time = time.time() - start_time
+                logger.warning(
+                    f"Retryable error on attempt {attempt + 1}/{max_retries + 1}: {e}. "
+                    f"Will retry in {retry_delay}s..."
+                )
+
+        # 所有重试都失败
+        total_time = time.time() - start_time
+        error_msg = f"Operation failed after {max_retries} retries in {total_time:.1f}s: {last_exception}"
+        logger.error(error_msg)
 
         if last_exception:
             raise last_exception
 
         raise DmClientError("操作失败")
+
+    def _is_retryable_error(self, error: Exception, error_msg: str) -> bool:
+        """
+        判断异常是否可重试
+
+        可重试异常：
+        - 超时相关（timeout, timed out）
+        - 连接相关（connection, bridge）
+        - 临时性错误（temporary, try again）
+
+        不可重试异常：
+        - SQL 语法错误（syntax, invalid）
+        - 权限错误（permission, denied）
+        - 表/列不存在（not found, does not exist）
+
+        Args:
+            error: 异常对象
+            error_msg: 异常消息（小写）
+
+        Returns:
+            True 如果可重试，False 否则
+        """
+        # 可重试的关键词
+        retryable_keywords = [
+            'timeout',
+            'timed out',
+            'connection',
+            'bridge',
+            'temporary',
+            'try again',
+            'unavailable',
+            'deadlock',
+            'lock wait'
+        ]
+
+        # 不可重试的关键词
+        non_retryable_keywords = [
+            'syntax',
+            'invalid sql',
+            'permission',
+            'denied',
+            'does not exist',
+            'not found',
+            'duplicate',
+            'constraint',
+            'foreign key',
+            'unique constraint'
+        ]
+
+        # 首先检查不可重试关键词（优先级更高）
+        for keyword in non_retryable_keywords:
+            if keyword in error_msg:
+                return False
+
+        # 然后检查可重试关键词
+        for keyword in retryable_keywords:
+            if keyword in error_msg:
+                return True
+
+        # 默认：未知异常可重试（保守策略）
+        return True
 
     def __enter__(self):
         """
@@ -331,8 +427,14 @@ def create_client(config_file: str = None) -> DmClient:
         with open(config_file) as f:
             db_config.update(json.load(f).get('database', {}))
 
-    # 转换为 DmConfig 对象
+    # 转换为 DmConfig 对象（使用新的默认值）
     from .config import DmConfig
+
+    # 向后兼容：处理 pool_connection_timeout（可能是秒或毫秒）
+    pool_timeout = db_config.get('pool_connection_timeout', 60000)
+    if pool_timeout < 1000:
+        pool_timeout = pool_timeout * 1000  # 秒转毫秒
+
     config = DmConfig(
         host=db_config.get('host', 'localhost'),
         port=db_config.get('port', 5236),
@@ -341,11 +443,14 @@ def create_client(config_file: str = None) -> DmClient:
         schema=db_config.get('schema', ''),
         use_pool=db_config.get('use_pool', True),
         query_timeout=db_config.get('query_timeout', 120),
-        retry_attempts=db_config.get('retry_attempts', 3),
-        retry_delay=db_config.get('retry_delay', 5),
+        retry_attempts=db_config.get('retry_attempts', 3),  # 向后兼容
+        retry_delay=db_config.get('retry_delay', 5),  # 向后兼容
         pool_min_connections=db_config.get('pool_min_connections', 2),
-        pool_max_connections=db_config.get('pool_max_connections', 10),
-        pool_connection_timeout=db_config.get('pool_connection_timeout', 30)
+        pool_max_connections=db_config.get('pool_max_connections', 20),  # 新默认值
+        pool_connection_timeout=pool_timeout,  # 新默认值（毫秒），已处理向后兼容
+        io_timeout=db_config.get('io_timeout', 30),  # 新参数
+        health_check_interval=db_config.get('health_check_interval', 15),  # 新参数
+        max_retries=db_config.get('max_retries', 1)  # 新参数（默认 1 次而非 3 次）
     )
 
     return DmClient(config)
