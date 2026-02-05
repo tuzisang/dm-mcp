@@ -13,9 +13,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Dict, Optional
 
-
-# 默认缓存 TTL（秒）
-DEFAULT_TTL = 120.0
+from db.config import DEFAULT_CACHE_TTL
 
 
 @dataclass
@@ -188,7 +186,7 @@ def generate_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
     return f"{func_name}:{hash_value}"
 
 
-def mcp_cache(ttl: float = DEFAULT_TTL):
+def mcp_cache(ttl: float = DEFAULT_CACHE_TTL):
     """
     MCP 工具缓存装饰器
     

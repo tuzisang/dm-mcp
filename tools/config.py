@@ -9,7 +9,7 @@ import time
 from typing import Dict, Any, Optional
 
 from core import create_response_metadata, mcp_tool_handler
-from config import get_config_manager
+from db import get_config_manager
 
 
 @mcp_tool_handler("dm_update_config")

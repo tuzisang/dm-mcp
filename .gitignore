@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Java compiled files
+db/*.class
+*.class
+
+# Test files
+test_*.py

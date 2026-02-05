@@ -1,14 +1,20 @@
 [project]
 name = "dm-mcp"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "达梦数据库 MCP 服务器 (Java 守护进程版本)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "dmpython>=2.5.26",
     "fastmcp>=2.0.0",
     "hypothesis>=6.148.7",
 ]
+
+# JAR 依赖信息（供参考）
+[project.optional-dependencies]
+# Java JAR files in lib/ directory:
+# - dm-jdbc-1.8.jar (达梦 JDBC 驱动)
+# - HikariCP-4.0.3.jar (连接池，Java 8 兼容版本)
+# - slf4j-api-2.0.12.jar (日志门面)
 
 [dependency-groups]
 dev = [

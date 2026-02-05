@@ -52,6 +52,39 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
     return identifier
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """
+    移除 SQL 开头的注释，用于验证实际的 SQL 语句类型
+    
+    支持的注释格式：
+    - 单行注释: -- 注释内容
+    - 块注释: /* 注释内容 */
+    
+    Args:
+        sql: 原始 SQL 字符串
+        
+    Returns:
+        str: 移除开头注释后的 SQL 字符串
+    """
+    result = sql.strip()
+    
+    while True:
+        original = result
+        
+        # 移除开头的单行注释 (-- 注释)
+        # 匹配 -- 开头直到换行符的内容
+        result = re.sub(r'^--[^\n]*\n?', '', result, flags=re.MULTILINE).strip()
+        
+        # 移除开头的块注释 (/* 注释 */)
+        result = re.sub(r'^/\*.*?\*/', '', result, flags=re.DOTALL).strip()
+        
+        # 如果没有变化，说明没有更多注释了
+        if result == original:
+            break
+    
+    return result
+
+
 def validate_sql_query(sql: str) -> str:
     """
     验证 SQL 查询的安全性
@@ -64,27 +97,37 @@ def validate_sql_query(sql: str) -> str:
 
     Raises:
         InvalidParameterError: 如果 SQL 查询无效或存在潜在危险
+    
+    Note:
+        支持开头带有注释的 SELECT 语句，例如：
+        -- 这是注释
+        SELECT * FROM table
     """
     if not sql or not sql.strip():
         raise InvalidParameterError("SQL 查询不能为空")
 
     sql = sql.strip()
+    
+    # 移除开头的注释，用于检查实际的 SQL 语句类型
+    sql_without_leading_comments = _strip_sql_comments(sql)
 
     # 查询的基本 SQL 注入保护
-    # 为安全起见，只允许 SELECT 查询
-    if not re.match(r"^\s*SELECT\s", sql, re.IGNORECASE):
+    # 为安全起见，只允许 SELECT 查询（支持开头有注释的情况）
+    if not re.match(r"^\s*SELECT\s", sql_without_leading_comments, re.IGNORECASE):
         raise InvalidParameterError("出于安全考虑，只允许 SELECT 查询")
 
-    # 检查潜在的危险操作
+    # 检查潜在的危险操作（在整个 SQL 中检查，包括注释外的部分）
+    # 注意：这里检查的是移除注释后的 SQL，避免注释中的关键字误报
     dangerous_keywords = [
         "DROP", "DELETE", "UPDATE", "INSERT", "CREATE", "ALTER",
         "EXEC", "EXECUTE", "TRUNCATE", "MERGE", "GRANT", "REVOKE"
     ]
 
     for keyword in dangerous_keywords:
-        if re.search(rf"\b{keyword}\b", sql, re.IGNORECASE):
+        if re.search(rf"\b{keyword}\b", sql_without_leading_comments, re.IGNORECASE):
             raise InvalidParameterError(f"检测到危险的 SQL 关键字 '{keyword}'")
 
+    # 返回原始 SQL（保留注释），因为注释可能对调试有用
     return sql
 
 

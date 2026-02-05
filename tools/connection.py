@@ -12,18 +12,12 @@ from core import (
     create_response_metadata,
     mcp_tool_handler,
 )
-from dm_client import DmClient, DmConfig
-
-
-def get_dm_config() -> DmConfig:
-    """从配置文件获取达梦数据库配置"""
-    return DmConfig.from_config_file()
+from db import DmClient, DmConfig
 
 
 def get_database_client() -> DmClient:
     """获取数据库客户端实例"""
-    config = get_dm_config()
-    return DmClient(config)
+    return DmClient(DmConfig.from_config_file())
 
 
 @mcp_tool_handler("dm_connect")
