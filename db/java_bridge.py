@@ -52,6 +52,9 @@ class JavaBridgeClient:
             str(lib_dir / 'dm-jdbc-1.8.jar'),
             str(lib_dir / 'HikariCP-4.0.3.jar'),
             str(lib_dir / 'slf4j-api-2.0.12.jar'),
+            str(lib_dir / 'jackson-core-2.10.4.jar'),
+            str(lib_dir / 'jackson-databind-2.10.0.jar'),
+            str(lib_dir / 'jackson-annotations-2.10.0.jar'),
             str(Path(__file__).parent)  # db 目录（包含 DmJdbcBridge.class）
         ]
 

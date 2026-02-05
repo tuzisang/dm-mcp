@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from .config import DmConfig, get_config_manager
+from .sql_security import validate_schema_name, validate_table_name, validate_view_name, is_safe_sql
 
 
 class DmClientError(Exception):
@@ -72,6 +73,10 @@ class DmClient:
 
     def _execute_query_internal(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
         """执行查询的内部方法"""
+        # SQL 安全检查（基础检查，不能替代参数化查询）
+        if not is_safe_sql(sql):
+            raise DmClientError(f"SQL 包含危险模式或未被允许的操作: {sql[:100]}...")
+
         bridge = self._get_bridge()
 
         if not bridge.is_alive():
@@ -134,7 +139,9 @@ class DmClient:
             表列表
         """
         if schema:
-            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema.strip()}' AND OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
+            # 验证 schema 名称以防止 SQL 注入
+            schema = validate_schema_name(schema)
+            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
         else:
             sql = "SELECT OBJECT_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
 
@@ -158,7 +165,9 @@ class DmClient:
             视图列表
         """
         if schema:
-            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema.strip()}' AND OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
+            # 验证 schema 名称以防止 SQL 注入
+            schema = validate_schema_name(schema)
+            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
         else:
             sql = "SELECT OBJECT_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
 
@@ -182,6 +191,9 @@ class DmClient:
         Returns:
             列信息列表
         """
+        # 验证表名以防止 SQL 注入
+        table_name = validate_table_name(table_name)
+
         sql_base = """
             SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_PRECISION,
                    DATA_SCALE, NULLABLE, DATA_DEFAULT, COLUMN_ID
@@ -189,13 +201,14 @@ class DmClient:
         """
 
         if schema:
-            owner = f" AND OWNER = '{schema.strip()}'"
+            schema = validate_schema_name(schema)
+            owner = f" AND OWNER = '{schema}'"
             view = "ALL_TAB_COLUMNS"
         else:
             owner = ""
             view = "USER_TAB_COLUMNS"
 
-        sql = sql_base.format(view=view, table=table_name.strip(), owner=owner)
+        sql = sql_base.format(view=view, table=table_name, owner=owner)
         return self.execute_query(sql)
 
     def get_view_definition(self, view_name: str, schema: str = None) -> t.List[t.Dict[str, t.Any]]:
@@ -209,10 +222,14 @@ class DmClient:
         Returns:
             视图定义列表（包含 VIEW_DEF 字段）
         """
+        # 验证视图名以防止 SQL 注入
+        view_name = validate_view_name(view_name)
+
         if schema:
-            sql = f"SELECT TEXT AS VIEW_DEF FROM ALL_VIEWS WHERE VIEW_NAME = '{view_name.strip()}' AND OWNER = '{schema.strip()}'"
+            schema = validate_schema_name(schema)
+            sql = f"SELECT TEXT AS VIEW_DEF FROM ALL_VIEWS WHERE VIEW_NAME = '{view_name}' AND OWNER = '{schema}'"
         else:
-            sql = f"SELECT TEXT AS VIEW_DEF FROM USER_VIEWS WHERE VIEW_NAME = '{view_name.strip()}'"
+            sql = f"SELECT TEXT AS VIEW_DEF FROM USER_VIEWS WHERE VIEW_NAME = '{view_name}'"
 
         return self.execute_query(sql)
 

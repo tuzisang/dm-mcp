@@ -72,6 +72,14 @@
 - [x] 9.3 更新 git 忽略文件（编译后的 .class 文件）
 - [x] 9.4 提交代码并创建 PR
 
+## 10. 安全和质量改进
+
+- [x] 10.1 修复资源泄漏：使用 try-with-resources 管理 ResultSet 和 Statement
+- [x] 10.2 添加 SQL 注入防护：创建 db/sql_security.py 输入验证模块
+- [x] 10.3 替换 JSON 处理：使用 Jackson 替代手动 JSON 解析
+- [x] 10.4 添加安全测试：test_security.py 全面的 SQL 注入防护测试
+- [x] 10.5 整理测试文件：移动所有测试到 tests/ 目录
+
 ---
 
 ## 完成总结
@@ -84,15 +92,20 @@
 - ✅ 支持 macOS ARM64 (Apple Silicon)
 - ✅ 所有接口保持兼容
 - ✅ 测试通过（504 张表）
+- ✅ SQL 注入防护完善
+- ✅ 使用 Jackson 处理 JSON
 
 **新增文件**:
 - `db/DmJdbcBridge.java` - Java 守护进程
 - `db/java_bridge.py` - Python 桥接客户端
 - `db/client.py` - 重写的数据库客户端
-- `lib/` - JAR 依赖目录
+- `db/sql_security.py` - SQL 注入防护模块
+- `lib/` - JAR 依赖目录（含 Jackson）
 - `MIGRATION.md` - 迁移文档
+- `tests/test_security.py` - 安全测试
+- `tests/test_step_by_step.py` - 集成测试
 
 **性能特性**:
 - HikariCP 连接池（最小 2，最大 10）
 - 守护进程持久运行（零启动开销）
-- JSON 通信（轻量级序列化）
+- Jackson JSON 处理（高效序列化）

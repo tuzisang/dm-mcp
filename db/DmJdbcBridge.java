@@ -1,3 +1,4 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import dm.jdbc.driver.DmDriver;
@@ -6,8 +7,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.sql.*;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * DmJdbcBridge - 达梦数据库 JDBC 桥接服务（守护进程模式）
@@ -28,21 +27,21 @@ import java.util.concurrent.Executors;
 public class DmJdbcBridge {
     private HikariDataSource dataSource;
     private BufferedReader reader;
-    private ExecutorService executor;
+    private ObjectMapper objectMapper;
 
     public static void main(String[] args) {
         try {
             DmJdbcBridge bridge = new DmJdbcBridge();
             bridge.run();
         } catch (Exception e) {
-            System.err.println("{\"error\": \"FATAL\", \"message\": \"" + e.getMessage().replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
+            System.err.println("{\"error\": \"FATAL\", \"message\": \"" + escapeJson(e.getMessage()) + "\"}");
             System.exit(1);
         }
     }
 
     public DmJdbcBridge() {
         this.reader = new BufferedReader(new InputStreamReader(System.in));
-        this.executor = Executors.newSingleThreadExecutor();
+        this.objectMapper = new ObjectMapper();
     }
 
     public void run() throws Exception {
@@ -104,10 +103,12 @@ public class DmJdbcBridge {
         this.dataSource = new HikariDataSource(config);
     }
 
+    @SuppressWarnings("unchecked")
     private String processRequest(String jsonRequest) throws Exception {
-        // 简单解析 JSON（避免引入额外的 JSON 库）
-        String sql = extractJsonValue(jsonRequest, "sql");
-        String paramsStr = extractJsonValue(jsonRequest, "params");
+        // 使用 Jackson 解析 JSON
+        Map<String, Object> request = objectMapper.readValue(jsonRequest, Map.class);
+        String sql = (String) request.get("sql");
+        List<String> params = (List<String>) request.get("params");
 
         if (sql == null) {
             return "{\"error\": \"true\", \"message\": \"Missing 'sql' field in request\"}";
@@ -123,83 +124,70 @@ public class DmJdbcBridge {
             }
 
             if (sql.toUpperCase().trim().startsWith("SELECT")) {
-                return executeQuery(conn, sql, paramsStr);
+                return executeQuery(conn, sql, params);
             } else {
-                return executeUpdate(conn, sql, paramsStr);
+                return executeUpdate(conn, sql, params);
             }
         }
     }
 
-    private String executeQuery(Connection conn, String sql, String paramsStr) throws Exception {
-        PreparedStatement stmt;
-        ResultSet rs;
+    private String executeQuery(Connection conn, String sql, List<String> params) throws Exception {
+        PreparedStatement stmt = prepareStatement(conn, sql, params);
 
-        if (paramsStr != null && !paramsStr.equals("null") && !paramsStr.equals("[]")) {
-            // 解析参数数组
-            List<String> params = parseJsonArray(paramsStr);
-            stmt = conn.prepareStatement(sql);
-            for (int i = 0; i < params.size(); i++) {
-                stmt.setString(i + 1, params.get(i));
-            }
-        } else {
-            stmt = conn.prepareStatement(sql);
-        }
+        // 使用 try-with-resources 自动关闭 ResultSet
+        try (ResultSet rs = stmt.executeQuery()) {
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
 
-        rs = stmt.executeQuery();
+            // 使用 Jackson 构建 JSON 结果
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
 
-        // 获取列信息
-        ResultSetMetaData metaData = rs.getMetaData();
-        int columnCount = metaData.getColumnCount();
-
-        // 构建 JSON 结果
-        StringBuilder json = new StringBuilder();
-        json.append("{\"success\": true, \"columns\": [");
-
-        // 列名
-        for (int i = 1; i <= columnCount; i++) {
-            if (i > 1) json.append(",");
-            json.append("\"").append(escapeJson(metaData.getColumnName(i))).append("\"");
-        }
-
-        json.append("], \"rows\": [");
-
-        // 数据行
-        boolean firstRow = true;
-        while (rs.next()) {
-            if (!firstRow) json.append(",");
-            firstRow = false;
-
-            json.append("[");
+            // 列名
+            List<String> columns = new ArrayList<>();
             for (int i = 1; i <= columnCount; i++) {
-                if (i > 1) json.append(",");
-
-                Object value = rs.getObject(i);
-                if (value == null) {
-                    json.append("null");
-                } else if (value instanceof Number) {
-                    json.append(value);
-                } else if (value instanceof Boolean) {
-                    json.append(value);
-                } else {
-                    json.append("\"").append(escapeJson(value.toString())).append("\"");
-                }
+                columns.add(metaData.getColumnName(i));
             }
-            json.append("]");
+            result.put("columns", columns);
+
+            // 数据行
+            List<List<Object>> rows = new ArrayList<>();
+            while (rs.next()) {
+                List<Object> row = new ArrayList<>();
+                for (int i = 1; i <= columnCount; i++) {
+                    Object value = rs.getObject(i);
+                    row.add(value);
+                }
+                rows.add(row);
+            }
+            result.put("rows", rows);
+            result.put("rowCount", -1);
+
+            return objectMapper.writeValueAsString(result);
         }
-
-        json.append("], \"rowCount\": ").append(getRowCount(metaData, conn)).append("}");
-
-        rs.close();
-        stmt.close();
-
-        return json.toString();
+        // stmt 和 rs 都会自动关闭
     }
 
-    private String executeUpdate(Connection conn, String sql, String paramsStr) throws Exception {
-        PreparedStatement stmt;
+    private String executeUpdate(Connection conn, String sql, List<String> params) throws Exception {
+        PreparedStatement stmt = prepareStatement(conn, sql, params);
 
-        if (paramsStr != null && !paramsStr.equals("null") && !paramsStr.equals("[]")) {
-            List<String> params = parseJsonArray(paramsStr);
+        try {
+            int affectedRows = stmt.executeUpdate();
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("affectedRows", affectedRows);
+            return objectMapper.writeValueAsString(result);
+        } finally {
+            stmt.close();
+        }
+    }
+
+    /**
+     * 准备带参数的 PreparedStatement
+     */
+    private PreparedStatement prepareStatement(Connection conn, String sql, List<String> params) throws Exception {
+        PreparedStatement stmt;
+        if (params != null && !params.isEmpty()) {
             stmt = conn.prepareStatement(sql);
             for (int i = 0; i < params.size(); i++) {
                 stmt.setString(i + 1, params.get(i));
@@ -207,81 +195,10 @@ public class DmJdbcBridge {
         } else {
             stmt = conn.prepareStatement(sql);
         }
-
-        int affectedRows = stmt.executeUpdate();
-        stmt.close();
-
-        return "{\"success\": true, \"affectedRows\": " + affectedRows + "}";
+        return stmt;
     }
 
-    private int getRowCount(ResultSetMetaData metaData, Connection conn) throws Exception {
-        // 对于达梦数据库，使用 USER_TABLES 获取表数量
-        String tableName = metaData.getTableName(1);
-        if (tableName != null && !tableName.isEmpty()) {
-            try (Statement stmt = conn.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-            }
-        }
-        return -1; // 无法获取
-    }
-
-    private List<String> parseJsonArray(String jsonArray) {
-        List<String> result = new ArrayList<>();
-        String content = jsonArray.trim();
-        if (content.startsWith("[") && content.endsWith("]")) {
-            content = content.substring(1, content.length() - 1);
-            String[] parts = content.split(",");
-            for (String part : parts) {
-                part = part.trim();
-                if (!part.isEmpty()) {
-                    // 移除引号
-                    if (part.startsWith("\"") && part.endsWith("\"")) {
-                        part = part.substring(1, part.length() - 1);
-                    }
-                    // 处理转义
-                    part = part.replace("\\\"", "\"").replace("\\\\", "\\");
-                    result.add(part);
-                }
-            }
-        }
-        return result;
-    }
-
-    private String extractJsonValue(String json, String key) {
-        String searchKey = "\"" + key + "\"";
-        int keyIndex = json.indexOf(searchKey);
-        if (keyIndex == -1) return null;
-
-        int colonIndex = json.indexOf(":", keyIndex);
-        if (colonIndex == -1) return null;
-
-        String rest = json.substring(colonIndex + 1).trim();
-
-        if (rest.startsWith("[")) {
-            // 数组值
-            int end = rest.indexOf("]");
-            if (end == -1) return null;
-            return rest.substring(0, end + 1);
-        } else if (rest.startsWith("\"")) {
-            // 字符串值
-            int end = rest.indexOf("\"", 1);
-            if (end == -1) return null;
-            return rest.substring(1, end);
-        } else {
-            // 数字或布尔值
-            int commaIndex = rest.indexOf(",");
-            int braceIndex = rest.indexOf("}");
-            int end = Math.min(commaIndex == -1 ? Integer.MAX_VALUE : commaIndex,
-                             braceIndex == -1 ? Integer.MAX_VALUE : braceIndex);
-            if (end == Integer.MAX_VALUE) return null;
-            return rest.substring(0, end).trim();
-        }
-    }
-
-    private String escapeJson(String s) {
+    private static String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
@@ -293,9 +210,6 @@ public class DmJdbcBridge {
     private void shutdown() {
         if (dataSource != null) {
             dataSource.close();
-        }
-        if (executor != null) {
-            executor.shutdown();
         }
     }
 }
