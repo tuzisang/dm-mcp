@@ -34,11 +34,8 @@ def dm_connect() -> Dict[str, Any]:
     start_time = time.time()
 
     # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 connect()，不需要再次调用
+    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
     with get_database_client() as client:
-        if not client.connection:
-            raise DatabaseConnectionError("无法建立数据库连接")
-
         # 执行简单的测试查询以验证连接是否正常工作
         test_result = client.execute_query("SELECT 1 AS test_value FROM DUAL")
         execution_time = time.time() - start_time

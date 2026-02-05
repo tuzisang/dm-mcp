@@ -42,11 +42,8 @@ def dm_list_tables(schema: Optional[str] = None) -> Dict[str, Any]:
     validated_schema = validate_optional_schema(schema)
 
     # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 connect()，不需要再次调用
+    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
     with get_database_client() as client:
-        if not client.connection:
-            raise DatabaseConnectionError("无法连接到达梦数据库")
-
         result = client.list_tables(validated_schema)
         execution_time = time.time() - start_time
 
@@ -84,11 +81,8 @@ def dm_list_views(schema: Optional[str] = None) -> Dict[str, Any]:
     validated_schema = validate_optional_schema(schema)
 
     # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 connect()，不需要再次调用
+    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
     with get_database_client() as client:
-        if not client.connection:
-            raise DatabaseConnectionError("无法连接到达梦数据库")
-
         result = client.list_views(validated_schema)
         execution_time = time.time() - start_time
 
@@ -131,11 +125,8 @@ def dm_describe_table(table_name: str, schema: Optional[str] = None) -> Dict[str
     validated_schema = validate_optional_schema(schema)
 
     # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 connect()，不需要再次调用
+    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
     with get_database_client() as client:
-        if not client.connection:
-            raise DatabaseConnectionError("无法连接到达梦数据库")
-
         result = client.describe_table(validated_table_name, validated_schema)
         execution_time = time.time() - start_time
 
@@ -182,11 +173,8 @@ def dm_get_view_definition(view_name: str, schema: Optional[str] = None) -> Dict
     validated_schema = validate_optional_schema(schema)
 
     # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 connect()，不需要再次调用
+    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
     with get_database_client() as client:
-        if not client.connection:
-            raise DatabaseConnectionError("无法连接到达梦数据库")
-
         result = client.get_view_definition(validated_view_name, validated_schema)
         execution_time = time.time() - start_time
 

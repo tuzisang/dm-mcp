@@ -139,13 +139,34 @@ class JavaBridgeClient:
                         elif 'error' in data:
                             raise JavaBridgeError(f"守护进程错误: {data.get('message')}")
                     except json.JSONDecodeError:
+                        # JSON解析失败 - 可能是Java桥接版本不匹配
                         pass  # 忽略非 JSON 输出
             except:
                 pass
 
             time.sleep(0.1)
 
-        raise JavaBridgeError("Java 守护进程启动超时")
+        # 启动超时 - 提供详细的诊断信息
+        raise JavaBridgeError(
+            "Java 守护进程启动超时或响应格式错误。\n\n"
+            "可能原因：\n"
+            "1. Java桥接版本过旧（期望JSON协议通信）\n"
+            "2. CLASSPATH配置错误\n"
+            "3. DmJdbcBridge.class未正确编译\n"
+            "4. 缺少必需的JAR依赖包\n\n"
+            "诊断步骤：\n"
+            "1. 检查Java源码版本：db/DmJdbcBridge.java\n"
+            "2. 检查编译文件：db/DmJdbcBridge.class\n"
+            "3. 检查JAR依赖：lib/目录下应包含dm-jdbc-1.8.jar等文件\n\n"
+            "重新编译Java桥接（如需）：\n"
+            "  cd /Users/apple/.claude/mcp/dm-mcp\n"
+            "  javac -cp 'lib/*' db/DmJdbcBridge.java\n\n"
+            f"配置信息：\n"
+            f"- Java Home: {os.environ.get('JAVA_HOME', '未设置')}\n"
+            f"- Host: {self.config.get('host')}\n"
+            f"- Port: {self.config.get('port')}\n"
+            f"- Schema: {self.config.get('schema', '')}\n"
+        )
 
     def is_alive(self) -> bool:
         """检查守护进程是否存活"""

@@ -59,6 +59,19 @@ class DmClient:
             print(f"连接失败: {e}")
             return False
 
+    def is_connected(self) -> bool:
+        """
+        检查数据库连接是否活跃
+
+        Returns:
+            bool: 如果Java桥接进程存活且运行正常返回True，否则返回False
+        """
+        try:
+            bridge = self._get_bridge()
+            return bridge is not None and bridge.is_alive()
+        except Exception:
+            return False
+
     def execute_query(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
         """
         执行 SQL 查询
@@ -281,8 +294,17 @@ class DmClient:
         raise DmClientError("操作失败")
 
     def __enter__(self):
-        """上下文管理器入口"""
-        self.connect()
+        """
+        上下文管理器入口 - 确保连接建立
+
+        Returns:
+            DmClient: 客户端实例
+
+        Raises:
+            DmClientError: 如果无法建立数据库连接
+        """
+        if not self.is_connected():
+            raise DmClientError("无法建立数据库连接")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
