@@ -9,11 +9,11 @@ from typing import Dict, Any, Optional
 
 
 def create_response_metadata(
-    operation: str,
-    success: bool,
-    execution_time: float = 0.0,
-    row_count: Optional[int] = None,
-    additional_info: Optional[Dict[str, Any]] = None
+        operation: str,
+        success: bool,
+        execution_time: float = 0.0,
+        row_count: Optional[int] = None,
+        additional_info: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     创建标准化的响应元数据
@@ -45,12 +45,12 @@ def create_response_metadata(
 
 
 def create_success_response(
-    operation: str,
-    data: Any,
-    execution_time: float,
-    row_count: Optional[int] = None,
-    additional_info: Optional[Dict[str, Any]] = None,
-    **extra_fields
+        operation: str,
+        data: Any,
+        execution_time: float,
+        row_count: Optional[int] = None,
+        additional_info: Optional[Dict[str, Any]] = None,
+        **extra_fields
 ) -> Dict[str, Any]:
     """
     创建成功响应
@@ -85,12 +85,12 @@ def create_success_response(
 
 
 def create_error_response(
-    operation: str,
-    error: str,
-    error_type: str,
-    execution_time: float,
-    additional_info: Optional[Dict[str, Any]] = None,
-    **extra_fields
+        operation: str,
+        error: str,
+        error_type: str,
+        execution_time: float,
+        additional_info: Optional[Dict[str, Any]] = None,
+        **extra_fields
 ) -> Dict[str, Any]:
     """
     创建错误响应

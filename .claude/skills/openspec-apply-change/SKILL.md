@@ -79,14 +79,6 @@ Implement tasks from an OpenSpec change.
    - Error or blocker encountered → report and wait for guidance
    - User interrupts
 
-7. **On completion or pause, show status**
-
-   Display:
-   - Tasks completed this session
-   - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
-   - If paused: explain why and wait for guidance
-
 **Output During Implementation**
 
 ```
@@ -101,7 +93,50 @@ Working on task 4/7: <task description>
 ✓ Task complete
 ```
 
-**Output On Completion**
+7. **On completion or pause, show status**
+
+   Display:
+   - Tasks completed this session
+   - Overall progress: "N/M tasks complete"
+   - If all done: **MUST require code review before archive** (see Pre-Archive Review below)
+   - If paused: explain why and wait for guidance
+
+### Pre-Archive Review (Required for Archive)
+
+**Before suggesting archive, you MUST run a code review on all changed files.**
+
+1. **Get changed files**: Run `git diff --name-only` in the working directory to list all modified files
+2. **Run code review**: Use the `/code-review` skill to review all changed files with scope "变更审查" (Change Review)
+3. **Report findings**:
+   - If review passes with no critical issues: Proceed to show archive suggestion
+   - If critical issues found: Show the issues and block archive suggestion until fixed
+
+The Pre-Archive Review is **MANDATORY** - do NOT suggest archiving until code review is complete.
+
+**Output After Review (No Critical Issues)**
+
+```
+### Code Review ✓
+- Review completed with no critical issues found
+- X minor/suggestion issues noted (optional to fix before archive)
+
+All tasks complete! Ready to archive this change.
+```
+
+**Output After Review (Critical Issues Found)**
+
+```
+### Code Review ✗ BLOCKED
+
+**Critical issues found - archive blocked until fixed:**
+
+1. **[File:L45]** SQL 注入风险 - 使用 PreparedStatement
+2. **[File:L78]** N+1 查询问题 - 使用批量查询
+
+Please fix these issues before archiving.
+```
+
+**Output On Completion (No Critical Issues)**
 
 ```
 ## Implementation Complete
@@ -115,7 +150,10 @@ Working on task 4/7: <task description>
 - [x] Task 2
 ...
 
-All tasks complete! Ready to archive this change.
+### Code Review ✓
+- Review completed with no critical issues found
+
+All tasks complete! Ready to archive this change with `/opsx:archive`.
 ```
 
 **Output On Pause (Issue Encountered)**
@@ -147,6 +185,7 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
+- **PRE-ARCHIVE REVIEW MANDATORY**: Before suggesting archive, run `/code-review` on all changed files. Archive is NOT allowed until review passes or critical issues are resolved.
 
 **Fluid Workflow Integration**
 

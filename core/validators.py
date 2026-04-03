@@ -111,10 +111,6 @@ def validate_sql_query(sql: str) -> str:
     # 移除开头的注释，用于检查实际的 SQL 语句类型
     sql_without_leading_comments = _strip_sql_comments(sql)
 
-    # 查询的基本 SQL 注入保护
-    # 为安全起见，只允许 SELECT 查询（支持开头有注释的情况）
-    if not re.match(r"^\s*SELECT\s", sql_without_leading_comments, re.IGNORECASE):
-        raise InvalidParameterError("出于安全考虑，只允许 SELECT 查询")
 
     # 检查潜在的危险操作（在整个 SQL 中检查，包括注释外的部分）
     # 注意：这里检查的是移除注释后的 SQL，避免注释中的关键字误报
