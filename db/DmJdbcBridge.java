@@ -3,6 +3,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import dm.jdbc.driver.DmDriver;
+import dm.jdbc.driver.DmdbStatement;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -191,6 +192,7 @@ public class DmJdbcBridge {
 
         String sql = (String) request.get("sql");
         List<String> params = (List<String>) request.get("params");
+        String statementType = (String) request.get("statement_type");
 
         if (sql == null) {
             return "{\"error\": \"true\", \"message\": \"Missing 'sql' field in request\"}";
@@ -206,8 +208,13 @@ public class DmJdbcBridge {
                 }
             }
 
-            if (sql.toUpperCase().trim().startsWith("SELECT")) {
-                return executeQuery(conn, sql, params);
+            // 根据 statement_type 路由，无 statement_type 时回退到 SQL 前缀检测
+            if ("EXPLAIN".equals(statementType)) {
+                return executeQuery(conn, sql, params, "EXPLAIN");
+            } else if ("EXPLAIN_PLAN".equals(statementType)) {
+                return executeExplainPlan(conn, sql, params);
+            } else if (sql.toUpperCase().trim().startsWith("SELECT")) {
+                return executeQuery(conn, sql, params, "SELECT");
             } else {
                 return executeUpdate(conn, sql, params);
             }
@@ -235,58 +242,63 @@ public class DmJdbcBridge {
         }
     }
 
-    private String executeQuery(Connection conn, String sql, List<String> params) throws Exception {
-        // 使用 try-with-resources 自动关闭 PreparedStatement
-        try (PreparedStatement stmt = prepareStatement(conn, sql, params)) {
+    private String executeQuery(Connection conn, String sql, List<String> params, String statementType) throws Exception {
+        // 设置查询超时
+        int timeout = getStatementTimeoutSeconds();
 
-            // 设置查询超时（防止长时间占用连接）
-            String statementTimeout = System.getenv("DM_STATEMENT_TIMEOUT");
-            if (statementTimeout != null) {
-                stmt.setQueryTimeout(Integer.parseInt(statementTimeout));
-            } else {
-                stmt.setQueryTimeout(120); // 默认 120 秒
+        // 使用 plain Statement 而非 PreparedStatement
+        // 达梦 JDBC 驱动不支持 prepare EXPLAIN 类语句（报"执行未准备SQL语句"）
+        // EXPLAIN/SELECT 语句不需要参数化查询，用 plain Statement 最安全
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+
+            boolean hasResultSet = stmt.execute(sql);
+            if (!hasResultSet) {
+                if ("EXPLAIN".equals(statementType)) {
+                    return objectMapper.writeValueAsString(explainTextToMap(stmt));
+                }
+                return objectMapper.writeValueAsString(createEmptyQueryResult());
             }
 
-            // 使用 try-with-resources 自动关闭 ResultSet
-            try (ResultSet rs = stmt.executeQuery()) {
-                ResultSetMetaData metaData = rs.getMetaData();
-                int columnCount = metaData.getColumnCount();
-
-                // 使用 Jackson 构建 JSON 结果
-                Map<String, Object> result = new HashMap<>();
-                result.put("success", true);
-
-                // 列名
-                List<String> columns = new ArrayList<>();
-                for (int i = 1; i <= columnCount; i++) {
-                    columns.add(metaData.getColumnName(i));
-                }
-                result.put("columns", columns);
-
-                // 列类型（JDBC 类型名称）
-                List<String> columnTypes = new ArrayList<>();
-                for (int i = 1; i <= columnCount; i++) {
-                    columnTypes.add(metaData.getColumnTypeName(i));
-                }
-                result.put("columnTypes", columnTypes);
-
-                // 数据行（使用类型感知的值转换）
-                List<List<Object>> rows = new ArrayList<>();
-                while (rs.next()) {
-                    List<Object> row = new ArrayList<>();
-                    for (int i = 1; i <= columnCount; i++) {
-                        Object value = getColumnValue(rs, i, metaData);
-                        row.add(value);
-                    }
-                    rows.add(row);
-                }
-                result.put("rows", rows);
-                result.put("rowCount", -1);
-
-                return objectMapper.writeValueAsString(result);
+            try (ResultSet rs = stmt.getResultSet()) {
+                return objectMapper.writeValueAsString(resultSetToMap(rs));
             }
-            // rs 和 stmt 都会自动关闭
         }
+    }
+
+    private Map<String, Object> explainTextToMap(Statement stmt) throws Exception {
+        DmdbStatement dmStmt = stmt.unwrap(DmdbStatement.class);
+        String explain = dmStmt.getExplain();
+
+        if (explain == null || explain.trim().isEmpty()) {
+            throw new SQLException(
+                "EXPLAIN 已执行，但达梦 JDBC 未返回 ResultSet，且 getExplain() 未返回可读取的计划文本"
+            );
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("columns", Collections.singletonList("PLAN_LINE"));
+        result.put("columnTypes", Collections.singletonList("VARCHAR"));
+
+        List<List<Object>> rows = new ArrayList<>();
+        String[] lines = explain.split("\\R");
+        for (String line : lines) {
+            if (line == null || line.trim().isEmpty()) {
+                continue;
+            }
+            rows.add(Collections.singletonList(line.replaceFirst("\\s+$", "")));
+        }
+
+        if (rows.isEmpty()) {
+            throw new SQLException(
+                "EXPLAIN 已执行，但达梦 JDBC 返回的计划文本为空"
+            );
+        }
+
+        result.put("rows", rows);
+        result.put("rowCount", rows.size());
+        return result;
     }
 
     private String executeUpdate(Connection conn, String sql, List<String> params) throws Exception {
@@ -307,6 +319,242 @@ public class DmJdbcBridge {
             return objectMapper.writeValueAsString(result);
         }
         // stmt 会自动关闭
+    }
+
+    /**
+     * 处理 EXPLAIN PLAN FOR 语句
+     *
+     * 执行 EXPLAIN PLAN FOR 语句将计划存入计划表，然后查询计划表返回结果。
+     * 优先使用 STATEMENT_ID 隔离；若目标 PLAN_TABLE 不支持，则回退到同 session 兼容路径。
+     */
+    private String executeExplainPlan(Connection conn, String sql, List<String> params) throws Exception {
+        int timeout = getStatementTimeoutSeconds();
+        Set<String> planTableColumns = getPlanTableColumns(conn, timeout);
+
+        if (planTableColumns.contains("STATEMENT_ID")) {
+            return executeExplainPlanWithStatementId(conn, sql, timeout, planTableColumns);
+        }
+
+        return executeExplainPlanWithSessionCleanup(conn, sql, timeout, planTableColumns);
+    }
+
+    private int getStatementTimeoutSeconds() {
+        String statementTimeout = System.getenv("DM_STATEMENT_TIMEOUT");
+        return (statementTimeout != null) ? Integer.parseInt(statementTimeout) : 120;
+    }
+
+    private Map<String, Object> createEmptyQueryResult() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("columns", Collections.emptyList());
+        result.put("columnTypes", Collections.emptyList());
+        result.put("rows", Collections.emptyList());
+        result.put("rowCount", 0);
+        return result;
+    }
+
+    private Map<String, Object> resultSetToMap(ResultSet rs) throws Exception {
+        if (rs == null) {
+            return createEmptyQueryResult();
+        }
+
+        ResultSetMetaData metaData = rs.getMetaData();
+        int columnCount = metaData.getColumnCount();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+
+        List<String> columns = new ArrayList<>();
+        for (int i = 1; i <= columnCount; i++) {
+            columns.add(metaData.getColumnName(i));
+        }
+        result.put("columns", columns);
+
+        List<String> columnTypes = new ArrayList<>();
+        for (int i = 1; i <= columnCount; i++) {
+            columnTypes.add(metaData.getColumnTypeName(i));
+        }
+        result.put("columnTypes", columnTypes);
+
+        List<List<Object>> rows = new ArrayList<>();
+        while (rs.next()) {
+            List<Object> row = new ArrayList<>();
+            for (int i = 1; i <= columnCount; i++) {
+                Object value = getColumnValue(rs, i, metaData);
+                row.add(value);
+            }
+            rows.add(row);
+        }
+
+        result.put("rows", rows);
+        result.put("rowCount", rows.size());
+        return result;
+    }
+
+    private Set<String> getPlanTableColumns(Connection conn, int timeout) throws Exception {
+        Set<String> columns = new LinkedHashSet<>();
+
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+            try (ResultSet rs = stmt.executeQuery("SELECT * FROM PLAN_TABLE WHERE 1 = 0")) {
+                ResultSetMetaData metaData = rs.getMetaData();
+                int columnCount = metaData.getColumnCount();
+                for (int i = 1; i <= columnCount; i++) {
+                    columns.add(normalizeColumnName(metaData.getColumnName(i)));
+                }
+            }
+        }
+
+        return columns;
+    }
+
+    private String normalizeColumnName(String columnName) {
+        if (columnName == null) {
+            return "";
+        }
+        return columnName.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String buildPlanQuery(Set<String> planTableColumns, String whereClause) {
+        List<String> preferredColumns = Arrays.asList(
+                "ID", "PARENT_ID", "OPERATION", "OPTIONS", "OBJECT_NAME", "POSITION", "COST", "REMARK"
+        );
+        List<String> selectedColumns = new ArrayList<>();
+        for (String column : preferredColumns) {
+            if (planTableColumns.contains(column)) {
+                selectedColumns.add(column);
+            }
+        }
+
+        String selectClause = selectedColumns.isEmpty() ? "*" : String.join(", ", selectedColumns);
+        StringBuilder query = new StringBuilder("SELECT ").append(selectClause).append(" FROM PLAN_TABLE");
+
+        if (whereClause != null && !whereClause.trim().isEmpty()) {
+            query.append(" WHERE ").append(whereClause);
+        }
+
+        if (planTableColumns.contains("ID")) {
+            query.append(" ORDER BY ID");
+        }
+
+        return query.toString();
+    }
+
+    private Map<String, Object> readPlanRows(Connection conn, int timeout, Set<String> planTableColumns, String whereClause) throws Exception {
+        String planQuery = buildPlanQuery(planTableColumns, whereClause);
+
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+            try (ResultSet rs = stmt.executeQuery(planQuery)) {
+                Map<String, Object> result = resultSetToMap(rs);
+                result.put("plan_table_row_count", result.get("rowCount"));
+                return result;
+            }
+        }
+    }
+
+    private Map<String, Object> requirePlanRows(Map<String, Object> result) throws SQLException {
+        Object rowCountValue = result.get("rowCount");
+        int rowCount = 0;
+        if (rowCountValue instanceof Number) {
+            rowCount = ((Number) rowCountValue).intValue();
+        }
+
+        if (rowCount > 0) {
+            return result;
+        }
+
+        throw planCompatibilityError(
+                "EXPLAIN PLAN 已执行，但 PLAN_TABLE 未返回任何计划行，目标环境可能未将执行计划写入 PLAN_TABLE"
+        );
+    }
+
+    private int countPlanTableRows(Connection conn, int timeout) throws Exception {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM PLAN_TABLE")) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private void clearPlanTable(Connection conn, int timeout) throws Exception {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+            stmt.executeUpdate("DELETE FROM PLAN_TABLE");
+        }
+    }
+
+    private SQLException planCompatibilityError(String detail) {
+        return new SQLException("当前 PLAN_TABLE 结构不支持安全隔离本次执行计划: " + detail);
+    }
+
+    private String executeExplainPlanWithStatementId(Connection conn, String sql, int timeout, Set<String> planTableColumns) throws Exception {
+        String statementId = "MCP_" + System.currentTimeMillis() + "_" + Thread.currentThread().getId();
+
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+
+            try {
+                stmt.execute("CALL SP_SET_PLAN_TABLE_STMTID('" + statementId + "')");
+            } catch (Exception e) {
+                System.err.println("[WARN] Failed to set STATEMENT_ID isolation: " + e.getMessage());
+            }
+
+            stmt.execute(sql);
+        }
+
+        try {
+            Map<String, Object> result = requirePlanRows(
+                    readPlanRows(conn, timeout, planTableColumns, "STATEMENT_ID = '" + statementId + "'")
+            );
+            return objectMapper.writeValueAsString(result);
+        } finally {
+            try (Statement cleanupStmt = conn.createStatement()) {
+                cleanupStmt.setQueryTimeout(timeout);
+                cleanupStmt.executeUpdate("DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = '" + statementId + "'");
+            } catch (Exception e) {
+                System.err.println("[WARN] Failed to cleanup PLAN_TABLE rows by STATEMENT_ID: " + e.getMessage());
+            }
+        }
+    }
+
+    private String executeExplainPlanWithSessionCleanup(Connection conn, String sql, int timeout, Set<String> planTableColumns) throws Exception {
+        try {
+            clearPlanTable(conn, timeout);
+        } catch (Exception e) {
+            throw planCompatibilityError("PLAN_TABLE 缺少 STATEMENT_ID，且无法完成当前 session 计划表清理: " + e.getMessage());
+        }
+
+        int residualBeforeExplain = countPlanTableRows(conn, timeout);
+        if (residualBeforeExplain != 0) {
+            throw planCompatibilityError(
+                    "PLAN_TABLE 缺少 STATEMENT_ID，清理后当前 session 仍可见 "
+                            + residualBeforeExplain + " 行计划，无法确认本次结果隔离"
+            );
+        }
+
+        try (Statement stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(timeout);
+            stmt.execute(sql);
+        }
+
+        try {
+            Map<String, Object> result = requirePlanRows(
+                    readPlanRows(conn, timeout, planTableColumns, null)
+            );
+            return objectMapper.writeValueAsString(result);
+        } finally {
+            try {
+                clearPlanTable(conn, timeout);
+            } catch (Exception e) {
+                System.err.println("[WARN] Failed to cleanup PLAN_TABLE rows without STATEMENT_ID: " + e.getMessage());
+            }
+        }
     }
 
     /**

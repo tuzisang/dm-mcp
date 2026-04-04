@@ -20,6 +20,16 @@ def get_database_client() -> DmClient:
     return DmClient(DmConfig.from_config_file())
 
 
+def _first_row_as_dict(result: Dict[str, Any]) -> Dict[str, Any]:
+    """将统一查询结果中的首行转换为便于阅读的字典。"""
+    columns = result.get("columns", [])
+    rows = result.get("rows", [])
+    if not rows:
+        return {}
+
+    return dict(zip(columns, rows[0]))
+
+
 @mcp_tool_handler("dm_connect")
 def dm_connect() -> Dict[str, Any]:
     """
@@ -40,11 +50,11 @@ def dm_connect() -> Dict[str, Any]:
         test_result = client.execute_query("SELECT 1 AS test_value FROM DUAL")
         execution_time = time.time() - start_time
 
-        if test_result and len(test_result) > 0:
+        if test_result.get("rows"):
             return {
                 "success": True,
                 "message": "数据库连接成功且响应正常",
-                "test_query_result": test_result[0],
+                "test_query_result": _first_row_as_dict(test_result),
                 "metadata": create_response_metadata(
                     operation="dm_connect",
                     success=True,

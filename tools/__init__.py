@@ -5,6 +5,7 @@ MCP 工具模块
 """
 
 from .query import dm_query
+from .explain_plan import dm_explain_plan
 from .connection import dm_connect
 from .schema import dm_list_tables, dm_list_views, dm_describe_table, dm_get_view_definition
 from .config import dm_update_config
@@ -18,6 +19,7 @@ def register_tools(mcp):
         mcp: FastMCP 服务器实例
     """
     mcp.tool()(dm_query)
+    mcp.tool()(dm_explain_plan)
     mcp.tool()(dm_connect)
     mcp.tool()(dm_list_tables)
     mcp.tool()(dm_list_views)
@@ -28,6 +30,7 @@ def register_tools(mcp):
 
 __all__ = [
     "dm_query",
+    "dm_explain_plan",
     "dm_connect",
     "dm_list_tables",
     "dm_list_views",

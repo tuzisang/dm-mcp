@@ -19,6 +19,9 @@ from .validators import (
     validate_identifier,
     validate_sql_query,
     validate_optional_schema,
+    STATEMENT_TYPE_SELECT,
+    STATEMENT_TYPE_EXPLAIN,
+    STATEMENT_TYPE_EXPLAIN_PLAN,
 )
 from .decorators import mcp_tool_handler
 from .cache import (
@@ -44,6 +47,9 @@ __all__ = [
     "validate_identifier",
     "validate_sql_query",
     "validate_optional_schema",
+    "STATEMENT_TYPE_SELECT",
+    "STATEMENT_TYPE_EXPLAIN",
+    "STATEMENT_TYPE_EXPLAIN_PLAN",
     # Decorators
     "mcp_tool_handler",
     # Cache

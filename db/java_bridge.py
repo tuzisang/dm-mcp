@@ -288,13 +288,14 @@ class JavaBridgeClient:
 
         return True
 
-    def _restart_and_retry(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
+    def _restart_and_retry(self, sql: str, params: Optional[List[Any]] = None, statement_type: Optional[str] = None) -> Dict[str, Any]:
         """
         重启 Java 进程并重试查询
 
         Args:
             sql: SQL 查询
             params: 查询参数
+            statement_type: 语句类型
 
         Returns:
             查询结果字典
@@ -328,7 +329,7 @@ class JavaBridgeClient:
         # 4. 重试查询一次
         logger.info("Retrying query after restart...")
         try:
-            return self._execute_query_internal(sql, params)
+            return self._execute_query_internal(sql, params, statement_type)
         except Exception as e:
             logger.error(f"Query retry after restart failed: {e}")
             raise JavaBridgeError(f"Query failed after restart: {e}")
@@ -375,13 +376,14 @@ class JavaBridgeClient:
             "restart_limit": self._max_restarts_in_window
         }
 
-    def _execute_query_internal(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
+    def _execute_query_internal(self, sql: str, params: Optional[List[Any]] = None, statement_type: Optional[str] = None) -> Dict[str, Any]:
         """
         内部查询执行方法（不包含自动重启逻辑）
 
         Args:
             sql: SQL 查询语句
             params: 查询参数列表
+            statement_type: 语句类型（SELECT, EXPLAIN, EXPLAIN_PLAN），用于 Java 桥接路由
 
         Returns:
             包含查询结果的字典
@@ -393,6 +395,8 @@ class JavaBridgeClient:
         request = {"sql": sql}
         if params:
             request["params"] = params
+        if statement_type:
+            request["statement_type"] = statement_type
 
         # 发送请求
         try:
@@ -405,13 +409,14 @@ class JavaBridgeClient:
         response = self._read_response()
         return response
 
-    def execute_query(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:
+    def execute_query(self, sql: str, params: Optional[List[Any]] = None, statement_type: Optional[str] = None) -> Dict[str, Any]:
         """
         执行查询（包含自动重启和重试逻辑）
 
         Args:
             sql: SQL 查询语句
             params: 查询参数列表
+            statement_type: 语句类型（SELECT, EXPLAIN, EXPLAIN_PLAN），用于桥接层路由
 
         Returns:
             包含查询结果的字典
@@ -420,18 +425,18 @@ class JavaBridgeClient:
             # 检查健康状态
             if self._is_unhealthy():
                 logger.warning("Java bridge is unhealthy, attempting restart...")
-                return self._restart_and_retry(sql, params)
+                return self._restart_and_retry(sql, params, statement_type)
 
             try:
                 # 尝试执行查询
-                result = self._execute_query_internal(sql, params)
+                result = self._execute_query_internal(sql, params, statement_type)
                 return result
             except JavaBridgeError as e:
                 # 查询失败，检查是否是不健康导致的
                 if "timeout" in str(e).lower() or "unresponsive" in str(e).lower():
                     logger.warning(f"Query failed with timeout: {e}")
                     if self._is_unhealthy():
-                        return self._restart_and_retry(sql, params)
+                        return self._restart_and_retry(sql, params, statement_type)
                 raise
 
     def execute_update(self, sql: str, params: Optional[List[Any]] = None) -> Dict[str, Any]:

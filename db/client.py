@@ -74,20 +74,28 @@ class DmClient:
         except Exception:
             return False
 
-    def execute_query(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
+    def execute_query(self, sql: str, statement_type: str = None) -> t.Dict[str, t.Any]:
         """
         执行 SQL 查询
 
         Args:
             sql: SQL 查询语句
+            statement_type: 语句类型（SELECT, EXPLAIN, EXPLAIN_PLAN），用于桥接层路由
 
         Returns:
-            查询结果列表，每行是一个字典
+            统一查询结果结构：{"columns": [...], "rows": [[...], ...]}
         """
-        return self._execute_with_retry(self._execute_query_internal, sql)
+        return self._execute_with_retry(
+            self._execute_query_internal, sql, statement_type=statement_type
+        )
 
-    def _execute_query_internal(self, sql: str) -> t.List[t.Dict[str, t.Any]]:
-        """执行查询的内部方法"""
+    def _execute_query_internal(self, sql: str, statement_type: str = None) -> t.Dict[str, t.Any]:
+        """
+        执行查询的内部方法
+
+        统一返回 Dict 结构: {"columns": [...], "rows": [[...], ...], "plan_table_row_count"?: int}
+        禁止返回混合形态（有时 List 有时 Dict）。
+        """
         # SQL 安全检查（基础检查，不能替代参数化查询）
         if not is_safe_sql(sql):
             raise DmClientError(f"SQL 包含危险模式或未被允许的操作: {sql[:100]}...")
@@ -98,20 +106,87 @@ class DmClient:
             raise DmClientError("Java 守护进程未运行")
 
         try:
-            result = bridge.execute_query(sql)
+            result = bridge.execute_query(sql, statement_type=statement_type)
 
-            # 转换 Java 返回的格式为 Python 字典列表
+            # 转换 Java 返回的格式为统一 Python 字典结构
             # Java 返回: {"success": true, "columns": ["COL1", "COL2"], "rows": [[val1, val2], ...]}
             if not result.get('success'):
                 raise DmClientError(result.get('message', '查询失败'))
 
             columns = result.get('columns', [])
             rows = result.get('rows', [])
+            plan_row_count = result.get('plan_table_row_count')
+            self._ensure_diagnostic_rows(statement_type, rows)
 
-            return [dict(zip(columns, row)) for row in rows]
+            # 统一返回 Dict 结构（始终包含 columns 和 rows）
+            unified = {
+                "columns": columns,
+                "rows": rows,
+            }
+            if plan_row_count is not None:
+                unified["plan_table_row_count"] = plan_row_count
+
+            return unified
 
         except Exception as e:
             raise DmClientError(f"查询失败: {e}")
+
+    def execute_explain_plan(self, sql: str) -> t.Dict[str, t.Any]:
+        """
+        执行执行计划语句并返回统一结构
+
+        Args:
+            sql: EXPLAIN 语句
+
+        Returns:
+            统一 Dict 结构: {"columns": [...], "rows": [[...], ...]}
+        """
+        return self._execute_with_retry(
+            self._execute_explain_plan_internal, sql
+        )
+
+    def _execute_explain_plan_internal(self, sql: str) -> t.Dict[str, t.Any]:
+        """执行执行计划查询的内部方法。"""
+        bridge = self._get_bridge()
+
+        if not bridge.is_alive():
+            raise DmClientError("Java 守护进程未运行")
+
+        try:
+            # 使用 EXPLAIN 直返路径，优先从达梦驱动直接提取计划文本
+            result = bridge.execute_query(sql, statement_type="EXPLAIN")
+
+            if not result.get('success'):
+                raise DmClientError(result.get('message', '获取执行计划失败'))
+
+            columns = result.get('columns', [])
+            rows = result.get('rows', [])
+            plan_row_count = result.get('plan_table_row_count')
+            self._ensure_diagnostic_rows("EXPLAIN", rows)
+
+            unified = {"columns": columns, "rows": rows}
+            if plan_row_count is not None:
+                unified["plan_table_row_count"] = plan_row_count
+
+            return unified
+
+        except Exception as e:
+            raise DmClientError(f"获取执行计划失败: {e}")
+
+    def _ensure_diagnostic_rows(self, statement_type: t.Optional[str], rows: t.Sequence[t.Any]) -> None:
+        """诊断 SQL 不能为空结果，避免把兼容性问题误判成成功。"""
+        if rows:
+            return
+
+        if statement_type == "EXPLAIN":
+            raise DmClientError(
+                "目标环境未直接返回执行计划: EXPLAIN 已执行，但未返回任何计划文本或结果集"
+            )
+
+        if statement_type == "EXPLAIN_PLAN":
+            raise DmClientError(
+                "目标环境未产出可读取的执行计划: EXPLAIN PLAN 已执行，但未返回任何计划行"
+            )
 
     def execute_update(self, sql: str) -> int:
         """
@@ -143,7 +218,7 @@ class DmClient:
         except Exception as e:
             raise DmClientError(f"更新失败: {e}")
 
-    def list_tables(self, schema: str = None) -> t.List[t.Dict[str, t.Any]]:
+    def list_tables(self, schema: str = None) -> t.Dict[str, t.Any]:
         """
         查询表列表
 
@@ -151,25 +226,18 @@ class DmClient:
             schema: schema 名称，如果为 None 则查询当前用户的表
 
         Returns:
-            表列表
+            表列表查询结果：{"columns": [...], "rows": [[...], ...]}
         """
         if schema:
             # 验证 schema 名称以防止 SQL 注入
             schema = validate_schema_name(schema)
-            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
+            sql = f"SELECT OBJECT_NAME AS TABLE_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
         else:
-            sql = "SELECT OBJECT_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
+            sql = "SELECT OBJECT_NAME AS TABLE_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'TABLE' ORDER BY OBJECT_NAME"
 
-        result = self.execute_query(sql)
+        return self.execute_query(sql)
 
-        # 转换字段名
-        for item in result:
-            if 'OBJECT_NAME' in item:
-                item['TABLE_NAME'] = item['OBJECT_NAME']
-
-        return result
-
-    def list_views(self, schema: str = None) -> t.List[t.Dict[str, t.Any]]:
+    def list_views(self, schema: str = None) -> t.Dict[str, t.Any]:
         """
         查询视图列表
 
@@ -177,25 +245,18 @@ class DmClient:
             schema: schema 名称，如果为 None 则查询当前用户的视图
 
         Returns:
-            视图列表
+            视图列表查询结果：{"columns": [...], "rows": [[...], ...]}
         """
         if schema:
             # 验证 schema 名称以防止 SQL 注入
             schema = validate_schema_name(schema)
-            sql = f"SELECT OBJECT_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
+            sql = f"SELECT OBJECT_NAME AS VIEW_NAME FROM ALL_OBJECTS WHERE OWNER = '{schema}' AND OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
         else:
-            sql = "SELECT OBJECT_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
+            sql = "SELECT OBJECT_NAME AS VIEW_NAME FROM USER_OBJECTS WHERE OBJECT_TYPE = 'VIEW' ORDER BY OBJECT_NAME"
 
-        result = self.execute_query(sql)
+        return self.execute_query(sql)
 
-        # 转换字段名
-        for item in result:
-            if 'OBJECT_NAME' in item:
-                item['VIEW_NAME'] = item['OBJECT_NAME']
-
-        return result
-
-    def describe_table(self, table_name: str, schema: str = None) -> t.List[t.Dict[str, t.Any]]:
+    def describe_table(self, table_name: str, schema: str = None) -> t.Dict[str, t.Any]:
         """
         获取表结构
 
@@ -204,7 +265,7 @@ class DmClient:
             schema: schema 名称，如果为 None 则查询当前用户的表
 
         Returns:
-            列信息列表
+            列信息查询结果：{"columns": [...], "rows": [[...], ...]}
         """
         # 验证表名以防止 SQL 注入
         table_name = validate_table_name(table_name)
@@ -226,7 +287,7 @@ class DmClient:
         sql = sql_base.format(view=view, table=table_name, owner=owner)
         return self.execute_query(sql)
 
-    def get_view_definition(self, view_name: str, schema: str = None) -> t.List[t.Dict[str, t.Any]]:
+    def get_view_definition(self, view_name: str, schema: str = None) -> t.Dict[str, t.Any]:
         """
         获取视图定义
 
@@ -235,7 +296,7 @@ class DmClient:
             schema: schema 名称，如果为 None 则查询当前用户的视图
 
         Returns:
-            视图定义列表（包含 VIEW_DEF 字段）
+            视图定义查询结果（包含 VIEW_DEF 字段）
         """
         # 验证视图名以防止 SQL 注入
         view_name = validate_view_name(view_name)
@@ -372,7 +433,9 @@ class DmClient:
             'duplicate',
             'constraint',
             'foreign key',
-            'unique constraint'
+            'unique constraint',
+            '未产出可读取的执行计划',
+            'plan_table 未返回任何计划行',
         ]
 
         # 首先检查不可重试关键词（优先级更高）

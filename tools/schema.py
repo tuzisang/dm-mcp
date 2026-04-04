@@ -22,6 +22,11 @@ def get_database_client() -> DmClient:
     return DmClient(DmConfig.from_config_file())
 
 
+def _row_count(result: Dict[str, Any]) -> int:
+    """从统一查询结果结构中提取实际行数。"""
+    return len(result.get("rows", []))
+
+
 @mcp_tool_handler("dm_list_tables")
 def dm_list_tables(schema: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -55,7 +60,7 @@ def dm_list_tables(schema: Optional[str] = None) -> Dict[str, Any]:
                 operation="dm_list_tables",
                 success=True,
                 execution_time=execution_time,
-                row_count=len(result),
+                row_count=_row_count(result),
                 additional_info={"schema_filtered": validated_schema is not None}
             )
         }
@@ -94,7 +99,7 @@ def dm_list_views(schema: Optional[str] = None) -> Dict[str, Any]:
                 operation="dm_list_views",
                 success=True,
                 execution_time=execution_time,
-                row_count=len(result),
+                row_count=_row_count(result),
                 additional_info={"schema_filtered": validated_schema is not None}
             )
         }
@@ -139,7 +144,7 @@ def dm_describe_table(table_name: str, schema: Optional[str] = None) -> Dict[str
                 operation="dm_describe_table",
                 success=True,
                 execution_time=execution_time,
-                row_count=len(result),
+                row_count=_row_count(result),
                 additional_info={
                     "table_name": validated_table_name,
                     "schema": validated_schema
@@ -187,7 +192,7 @@ def dm_get_view_definition(view_name: str, schema: Optional[str] = None) -> Dict
                 operation="dm_get_view_definition",
                 success=True,
                 execution_time=execution_time,
-                row_count=len(result),
+                row_count=_row_count(result),
                 additional_info={
                     "view_name": validated_view_name,
                     "schema": validated_schema

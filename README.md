@@ -121,25 +121,98 @@ python dm_client.py
 
 ## 🛠️ MCP 工具
 
-服务器提供以下 7 个核心数据库工具：
+服务器提供以下 8 个核心数据库工具：
 
 ### 数据库连接工具
 - `dm_connect()`: 测试数据库连接和健康检查
 - `dm_update_config(host?, port?, user?, password?, schema?)`: 动态修改数据库连接配置并保存到配置文件
 
 ### 数据库查询工具
-- `dm_query(sql)`: 执行安全 SQL 查询（仅支持 SELECT）
+- `dm_query(sql)`: 执行安全 SQL 查询（支持 SELECT、EXPLAIN、EXPLAIN PLAN）
 - `dm_list_tables(schema?)`: 列出数据库表
 - `dm_list_views(schema?)`: 列出数据库视图
 - `dm_describe_table(table_name, schema?)`: 获取表结构
 - `dm_get_view_definition(view_name, schema?)`: 获取视图定义
 
+### 执行计划工具
+- `dm_explain_plan(select_sql)`: 在单次调用中获取 SELECT 语句的执行计划（推荐）
+  - 在同一 JDBC session 内完成计划生成与读取，优先使用达梦驱动直接返回的计划文本
+  - 仅接受 SELECT 语句，自动拒绝 DML/DDL
+
 ## ⚠️ 重要说明
 
-- **安全限制**：仅允许执行 SELECT 查询，确保数据库安全
+- **安全限制**：`dm_query` 仅允许执行只读语句（SELECT、EXPLAIN、EXPLAIN PLAN），所有 DML、DDL、授权语句都会被拒绝
+- **执行计划推荐使用 `dm_explain_plan`**：建议使用专用工具获取 SELECT 的执行计划。当前实现优先走 `EXPLAIN SELECT ...` + 达梦 JDBC 驱动直接计划接口，不再默认依赖 `PLAN_TABLE`。
 - **大小写敏感**：达梦数据库对表名和模式名大小写敏感，请使用用户提供的确切大小写
 - **参数验证**：所有输入参数都会进行严格验证，防止 SQL 注入
 - **连接管理**：自动管理数据库连接，确保资源正确释放
+
+### 语句类型元数据
+
+`dm_query` 返回的 `metadata.additional_info` 包含以下字段用于标识语句类型：
+
+| 字段 | 说明 | 示例值 |
+|------|------|--------|
+| `statement_type` | 语句类型 | `SELECT`, `EXPLAIN`, `EXPLAIN_PLAN` |
+| `query_type` | 查询类型（人类可读） | `SELECT`, `EXPLAIN`, `EXPLAIN_PLAN` |
+| `execution_statement_type` | 实际执行路径对应的语句类型 | `EXPLAIN` |
+| `normalized_sql` | 规范化后实际执行的 SQL（如适用） | `EXPLAIN SELECT * FROM users` |
+
+**示例：执行 EXPLAIN**
+```json
+{
+  "success": true,
+  "metadata": {
+    "additional_info": {
+      "statement_type": "EXPLAIN",
+      "query_type": "EXPLAIN"
+    }
+  }
+}
+```
+
+**示例：执行 EXPLAIN PLAN**
+```json
+{
+  "success": true,
+  "sql": "EXPLAIN SELECT * FROM users WHERE id = 1",
+  "metadata": {
+    "additional_info": {
+      "statement_type": "EXPLAIN_PLAN",
+      "query_type": "EXPLAIN_PLAN",
+      "execution_statement_type": "EXPLAIN",
+      "normalized_sql": "EXPLAIN SELECT * FROM users WHERE id = 1"
+    }
+  }
+}
+```
+
+**示例：使用 dm_explain_plan 获取执行计划（推荐）**
+```json
+{
+  "success": true,
+  "sql": "EXPLAIN SELECT * FROM users WHERE id = 1",
+  "data": {
+    "columns": ["PLAN_LINE"],
+    "rows": [
+      ["1   #NSET2: [1, 1, 1]"],
+      ["2     #PRJT2: [1, 1, 1]; exp_num(1), is_atom(FALSE)"]
+    ]
+  },
+  "metadata": {
+    "statement_type": "EXPLAIN_PLAN",
+    "query_type": "EXPLAIN_PLAN",
+    "execution_statement_type": "EXPLAIN",
+    "diagnostic_path": "DIRECT_EXPLAIN",
+    "original_sql": "SELECT * FROM users WHERE id = 1",
+    "row_count": 2
+  }
+}
+```
+
+> ⚠️ **为什么用 `dm_explain_plan` 而不是 `dm_query("EXPLAIN SELECT ...")`:**
+> `dm_explain_plan` 会固定走仓库当前验证通过的执行计划路径，并把“用户语义”与“实际执行路径”一起写入元数据。
+> 这样即使目标库只支持 `EXPLAIN SELECT ...` 而不支持 `EXPLAIN PLAN ...`，工具仍然能稳定返回计划。
 
 ## 🐛 常见问题
 

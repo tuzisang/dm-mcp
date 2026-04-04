@@ -5,9 +5,15 @@
 """
 
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 from .exceptions import InvalidParameterError
+
+# 支持的语句类型
+StatementType = str
+STATEMENT_TYPE_SELECT = "SELECT"
+STATEMENT_TYPE_EXPLAIN = "EXPLAIN"
+STATEMENT_TYPE_EXPLAIN_PLAN = "EXPLAIN_PLAN"
 
 
 def validate_identifier(identifier: str, identifier_type: str = "identifier") -> str:
@@ -55,65 +61,101 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 def _strip_sql_comments(sql: str) -> str:
     """
     移除 SQL 开头的注释，用于验证实际的 SQL 语句类型
-    
+
     支持的注释格式：
     - 单行注释: -- 注释内容
     - 块注释: /* 注释内容 */
-    
+
     Args:
         sql: 原始 SQL 字符串
-        
+
     Returns:
         str: 移除开头注释后的 SQL 字符串
     """
     result = sql.strip()
-    
+
     while True:
         original = result
-        
+
         # 移除开头的单行注释 (-- 注释)
         # 匹配 -- 开头直到换行符的内容
         result = re.sub(r'^--[^\n]*\n?', '', result, flags=re.MULTILINE).strip()
-        
+
         # 移除开头的块注释 (/* 注释 */)
         result = re.sub(r'^/\*.*?\*/', '', result, flags=re.DOTALL).strip()
-        
+
         # 如果没有变化，说明没有更多注释了
         if result == original:
             break
-    
+
     return result
 
 
-def validate_sql_query(sql: str) -> str:
+def classify_statement(sql_without_comments: str) -> StatementType:
     """
-    验证 SQL 查询的安全性
+    根据去除注释后的 SQL 语句开头识别语句类型
+
+    Args:
+        sql_without_comments: 去除注释后的 SQL 语句（已 strip）
+
+    Returns:
+        StatementType: 语句类型 (SELECT, EXPLAIN, EXPLAIN_PLAN)
+
+    Raises:
+        ValueError: 如果无法识别语句类型
+    """
+    upper = sql_without_comments.upper()
+
+    # 优先级：EXPLAIN PLAN FOR > EXPLAIN PLAN > EXPLAIN
+    # 目标 DM 环境不支持 FOR 语法，所以 EXPLAIN PLAN 也归为 EXPLAIN_PLAN
+    if upper.startswith("EXPLAIN PLAN FOR"):
+        return STATEMENT_TYPE_EXPLAIN_PLAN
+
+    if upper.startswith("EXPLAIN PLAN"):
+        return STATEMENT_TYPE_EXPLAIN_PLAN
+
+    if upper.startswith("EXPLAIN"):
+        return STATEMENT_TYPE_EXPLAIN
+
+    if upper.startswith("SELECT"):
+        return STATEMENT_TYPE_SELECT
+
+    # 理论上不会到达这里，因为调用方已做危险关键字检查
+    raise ValueError(f"无法识别的语句类型: {sql_without_comments[:20]}")
+
+
+def validate_sql_query(sql: str) -> Tuple[str, StatementType]:
+    """
+    验证 SQL 查询的安全性并识别语句类型
 
     Args:
         sql: SQL 查询字符串
 
     Returns:
-        str: 验证过的 SQL 查询
+        Tuple[str, StatementType]: (验证过的 SQL 查询, 语句类型)
 
     Raises:
         InvalidParameterError: 如果 SQL 查询无效或存在潜在危险
-    
+
     Note:
-        支持开头带有注释的 SELECT 语句，例如：
+        支持开头带有注释的 SELECT/EXPLAIN 语句，例如：
         -- 这是注释
         SELECT * FROM table
+
+        允许的语句类型：
+        - SELECT：标准查询
+        - EXPLAIN：诊断语句（返回结果集）
+        - EXPLAIN_PLAN：执行计划语句（仅生成计划，无结果集）
     """
     if not sql or not sql.strip():
         raise InvalidParameterError("SQL 查询不能为空")
 
     sql = sql.strip()
-    
+
     # 移除开头的注释，用于检查实际的 SQL 语句类型
     sql_without_leading_comments = _strip_sql_comments(sql)
 
-
-    # 检查潜在的危险操作（在整个 SQL 中检查，包括注释外的部分）
-    # 注意：这里检查的是移除注释后的 SQL，避免注释中的关键字误报
+    # 检查潜在的危险操作（在去除注释后的 SQL 中检查）
     dangerous_keywords = [
         "DROP", "DELETE", "UPDATE", "INSERT", "CREATE", "ALTER",
         "EXEC", "EXECUTE", "TRUNCATE", "MERGE", "GRANT", "REVOKE"
@@ -123,8 +165,11 @@ def validate_sql_query(sql: str) -> str:
         if re.search(rf"\b{keyword}\b", sql_without_leading_comments, re.IGNORECASE):
             raise InvalidParameterError(f"检测到危险的 SQL 关键字 '{keyword}'")
 
-    # 返回原始 SQL（保留注释），因为注释可能对调试有用
-    return sql
+    # 识别语句类型
+    statement_type = classify_statement(sql_without_leading_comments)
+
+    # 返回原始 SQL（保留注释）和语句类型
+    return sql, statement_type
 
 
 def validate_optional_schema(schema: Optional[str]) -> Optional[str]:
