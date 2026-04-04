@@ -80,7 +80,7 @@ class TestMcpCacheDecorator:
         @mcp_cache()
         def test_func():
             return {"success": True, "metadata": {}}
-        assert test_func._cache_ttl == 120.0
+        assert test_func._cache_ttl == 60.0
     
     def test_cache_hit(self):
         call_count = 0

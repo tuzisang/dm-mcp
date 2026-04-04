@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Dict, Optional
 
-from db.config import DEFAULT_CACHE_TTL
+DEFAULT_CACHE_TTL = 60.0
 
 
 @dataclass
@@ -191,10 +191,10 @@ def mcp_cache(ttl: float = DEFAULT_CACHE_TTL):
     MCP 工具缓存装饰器
     
     Args:
-        ttl: 缓存生存时间，默认 120 秒（2 分钟）
+        ttl: 缓存生存时间，默认 60 秒（1 分钟）
     
     Usage:
-        @mcp_cache()  # 使用默认 2 分钟缓存
+        @mcp_cache()  # 使用默认 1 分钟缓存
         def my_tool(arg1, arg2):
             ...
         

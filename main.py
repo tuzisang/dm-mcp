@@ -1,22 +1,14 @@
 """
 达梦数据库 MCP 服务器
 
-这是一个基于 FastMCP 框架构建的达梦数据库 MCP 服务器，提供数据库连接和查询工具。
-该服务器提供全面的数据库操作功能，包括表管理、视图检查和带有参数验证的安全 SQL 执行。
+这是一个基于 FastMCP 的只读达梦数据库 MCP 服务器。
+当前实现保留共享 Java 守护进程、共享连接池和短 TTL 查询缓存，其余复杂度已收敛掉。
 
 使用方法:
     python main.py
 
 依赖项:
-    - dmPython: 达梦数据库 Python 驱动
     - FastMCP: MCP 服务器框架
-
-数据库配置:
-    - 主机: localhost
-    - 端口: 5236
-    - 用户: SYSDBA
-    - 密码: SYSDBA
-    (请根据您的环境修改配置)
 """
 
 from mcp.server.fastmcp import FastMCP

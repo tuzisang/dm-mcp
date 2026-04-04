@@ -9,7 +9,6 @@ import re
 from typing import Dict, Any
 
 from core import (
-    DatabaseConnectionError,
     validate_sql_query,
     create_response_metadata,
     mcp_tool_handler,
@@ -18,20 +17,14 @@ from core import (
     STATEMENT_TYPE_EXPLAIN,
     STATEMENT_TYPE_EXPLAIN_PLAN,
 )
-from db import DmClient, DmConfig
+from db import get_shared_client
 
 
-# 语句类型到 query_type 的映射
 _STATEMENT_TYPE_TO_QUERY_TYPE = {
     STATEMENT_TYPE_SELECT: "SELECT",
     STATEMENT_TYPE_EXPLAIN: "EXPLAIN",
     STATEMENT_TYPE_EXPLAIN_PLAN: "EXPLAIN_PLAN",
 }
-
-
-def get_database_client() -> DmClient:
-    """获取数据库客户端实例"""
-    return DmClient(DmConfig.from_config_file())
 
 
 def _normalize_diagnostic_sql(sql: str, statement_type: str) -> tuple[str, str]:
@@ -84,39 +77,36 @@ def dm_query(sql: str) -> Dict[str, Any]:
         validated_sql, statement_type
     )
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        result = client.execute_query(
-            normalized_sql,
-            statement_type=execution_statement_type,
+    client = get_shared_client()
+    result = client.execute_query(
+        normalized_sql,
+        statement_type=execution_statement_type,
+    )
+    execution_time = time.time() - start_time
+
+    additional_info = {
+        "statement_type": statement_type,
+        "query_type": _STATEMENT_TYPE_TO_QUERY_TYPE.get(statement_type, statement_type),
+    }
+
+    if execution_statement_type != statement_type:
+        additional_info["execution_statement_type"] = execution_statement_type
+        additional_info["normalized_sql"] = normalized_sql
+
+    if statement_type == STATEMENT_TYPE_EXPLAIN_PLAN:
+        plan_row_count = result.get("plan_table_row_count")
+        if plan_row_count is not None:
+            additional_info["plan_table_row_count"] = plan_row_count
+
+    return {
+        "success": True,
+        "data": result,
+        "sql": normalized_sql,
+        "metadata": create_response_metadata(
+            operation="dm_query",
+            success=True,
+            execution_time=execution_time,
+            row_count=len(result.get("rows", [])),
+            additional_info=additional_info,
         )
-        execution_time = time.time() - start_time
-
-        additional_info = {
-            "statement_type": statement_type,
-            "query_type": _STATEMENT_TYPE_TO_QUERY_TYPE.get(statement_type, statement_type),
-        }
-
-        if execution_statement_type != statement_type:
-            additional_info["execution_statement_type"] = execution_statement_type
-            additional_info["normalized_sql"] = normalized_sql
-
-        # 对于 EXPLAIN_PLAN，记录计划表行数（如果有）
-        if statement_type == STATEMENT_TYPE_EXPLAIN_PLAN:
-            plan_row_count = result.get("plan_table_row_count")
-            if plan_row_count is not None:
-                additional_info["plan_table_row_count"] = plan_row_count
-
-        return {
-            "success": True,
-            "data": result,
-            "sql": normalized_sql,
-            "metadata": create_response_metadata(
-                operation="dm_query",
-                success=True,
-                execution_time=execution_time,
-                row_count=len(result.get("rows", [])),
-                additional_info=additional_info,
-            )
-        }
+    }

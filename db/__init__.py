@@ -1,37 +1,41 @@
 """
-数据库模块
-
-包含达梦数据库客户端、连接池和配置管理
+数据库模块导出。
 """
 
+from .client import (
+    DmClient,
+    DmClientError,
+    create_client,
+    get_shared_client,
+    reset_shared_client,
+)
 from .config import (
-    DmConfig,
-    PoolConfig,
-    CacheConfig,
     ConfigManager,
-    get_config_manager,
-    get_database_config,
-    get_cache_ttl,
-    # 默认配置常量
+    DmConfig,
     DEFAULT_DB_HOST,
     DEFAULT_DB_PORT,
-    DEFAULT_CACHE_TTL,
+    DEFAULT_DB_PASSWORD,
+    DEFAULT_DB_SCHEMA,
+    DEFAULT_DB_USER,
+    DEFAULT_QUERY_TIMEOUT,
+    get_config_manager,
+    get_database_config,
 )
-from .client import DmClient
 
 __all__ = [
-    # 配置类
-    'DmConfig',
-    'PoolConfig',
-    'CacheConfig',
-    'ConfigManager',
-    'get_config_manager',
-    'get_database_config',
-    'get_cache_ttl',
-    # 默认配置常量
-    'DEFAULT_DB_HOST',
-    'DEFAULT_DB_PORT',
-    'DEFAULT_CACHE_TTL',
-    # 客户端
-    'DmClient',
+    "ConfigManager",
+    "DmClient",
+    "DmClientError",
+    "DmConfig",
+    "DEFAULT_DB_HOST",
+    "DEFAULT_DB_PASSWORD",
+    "DEFAULT_DB_PORT",
+    "DEFAULT_DB_SCHEMA",
+    "DEFAULT_DB_USER",
+    "DEFAULT_QUERY_TIMEOUT",
+    "create_client",
+    "get_config_manager",
+    "get_database_config",
+    "get_shared_client",
+    "reset_shared_client",
 ]

@@ -8,18 +8,12 @@ import time
 from typing import Dict, Any, Optional
 
 from core import (
-    DatabaseConnectionError,
     validate_identifier,
     validate_optional_schema,
     create_response_metadata,
     mcp_tool_handler,
 )
-from db import DmClient, DmConfig
-
-
-def get_database_client() -> DmClient:
-    """获取数据库客户端实例"""
-    return DmClient(DmConfig.from_config_file())
+from db import get_shared_client
 
 
 def _row_count(result: Dict[str, Any]) -> int:
@@ -46,24 +40,22 @@ def dm_list_tables(schema: Optional[str] = None) -> Dict[str, Any]:
     # 验证可选的 schema 参数
     validated_schema = validate_optional_schema(schema)
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        result = client.list_tables(validated_schema)
-        execution_time = time.time() - start_time
+    client = get_shared_client()
+    result = client.list_tables(validated_schema)
+    execution_time = time.time() - start_time
 
-        return {
-            "success": True,
-            "data": result,
-            "schema": validated_schema,
-            "metadata": create_response_metadata(
-                operation="dm_list_tables",
-                success=True,
-                execution_time=execution_time,
-                row_count=_row_count(result),
-                additional_info={"schema_filtered": validated_schema is not None}
-            )
-        }
+    return {
+        "success": True,
+        "data": result,
+        "schema": validated_schema,
+        "metadata": create_response_metadata(
+            operation="dm_list_tables",
+            success=True,
+            execution_time=execution_time,
+            row_count=_row_count(result),
+            additional_info={"schema_filtered": validated_schema is not None}
+        )
+    }
 
 
 @mcp_tool_handler("dm_list_views")
@@ -85,24 +77,22 @@ def dm_list_views(schema: Optional[str] = None) -> Dict[str, Any]:
     # 验证可选的 schema 参数
     validated_schema = validate_optional_schema(schema)
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        result = client.list_views(validated_schema)
-        execution_time = time.time() - start_time
+    client = get_shared_client()
+    result = client.list_views(validated_schema)
+    execution_time = time.time() - start_time
 
-        return {
-            "success": True,
-            "data": result,
-            "schema": validated_schema,
-            "metadata": create_response_metadata(
-                operation="dm_list_views",
-                success=True,
-                execution_time=execution_time,
-                row_count=_row_count(result),
-                additional_info={"schema_filtered": validated_schema is not None}
-            )
-        }
+    return {
+        "success": True,
+        "data": result,
+        "schema": validated_schema,
+        "metadata": create_response_metadata(
+            operation="dm_list_views",
+            success=True,
+            execution_time=execution_time,
+            row_count=_row_count(result),
+            additional_info={"schema_filtered": validated_schema is not None}
+        )
+    }
 
 
 @mcp_tool_handler("dm_describe_table")
@@ -129,28 +119,26 @@ def dm_describe_table(table_name: str, schema: Optional[str] = None) -> Dict[str
     # 验证可选的 schema 参数
     validated_schema = validate_optional_schema(schema)
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        result = client.describe_table(validated_table_name, validated_schema)
-        execution_time = time.time() - start_time
+    client = get_shared_client()
+    result = client.describe_table(validated_table_name, validated_schema)
+    execution_time = time.time() - start_time
 
-        return {
-            "success": True,
-            "data": result,
-            "table_name": validated_table_name,
-            "schema": validated_schema,
-            "metadata": create_response_metadata(
-                operation="dm_describe_table",
-                success=True,
-                execution_time=execution_time,
-                row_count=_row_count(result),
-                additional_info={
-                    "table_name": validated_table_name,
-                    "schema": validated_schema
-                }
-            )
-        }
+    return {
+        "success": True,
+        "data": result,
+        "table_name": validated_table_name,
+        "schema": validated_schema,
+        "metadata": create_response_metadata(
+            operation="dm_describe_table",
+            success=True,
+            execution_time=execution_time,
+            row_count=_row_count(result),
+            additional_info={
+                "table_name": validated_table_name,
+                "schema": validated_schema
+            }
+        )
+    }
 
 
 @mcp_tool_handler("dm_get_view_definition")
@@ -177,25 +165,23 @@ def dm_get_view_definition(view_name: str, schema: Optional[str] = None) -> Dict
     # 验证可选的 schema 参数
     validated_schema = validate_optional_schema(schema)
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        result = client.get_view_definition(validated_view_name, validated_schema)
-        execution_time = time.time() - start_time
+    client = get_shared_client()
+    result = client.get_view_definition(validated_view_name, validated_schema)
+    execution_time = time.time() - start_time
 
-        return {
-            "success": True,
-            "data": result,
-            "view_name": validated_view_name,
-            "schema": validated_schema,
-            "metadata": create_response_metadata(
-                operation="dm_get_view_definition",
-                success=True,
-                execution_time=execution_time,
-                row_count=_row_count(result),
-                additional_info={
-                    "view_name": validated_view_name,
-                    "schema": validated_schema
-                }
-            )
-        }
+    return {
+        "success": True,
+        "data": result,
+        "view_name": validated_view_name,
+        "schema": validated_schema,
+        "metadata": create_response_metadata(
+            operation="dm_get_view_definition",
+            success=True,
+            execution_time=execution_time,
+            row_count=_row_count(result),
+            additional_info={
+                "view_name": validated_view_name,
+                "schema": validated_schema
+            }
+        )
+    }

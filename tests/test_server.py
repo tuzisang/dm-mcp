@@ -1,54 +1,37 @@
-"""
-MCP 服务器基础测试
-"""
+"""服务器装配层的轻量单元测试。"""
 
-import subprocess
-import sys
-import time
+from unittest.mock import MagicMock
 
-
-def test_imports():
-    """测试模块导入"""
-    print("测试模块导入...")
-    try:
-        from main import mcp
-        from db import DmClient, DmConfig, PoolConfig
-        from core.cache import mcp_cache
-        from core.validators import validate_sql_query
-        print("✓ 所有模块导入成功")
-        return True
-    except ImportError as e:
-        print(f"✗ 导入失败: {e}")
-        return False
+import db
+from main import mcp
+from tools import register_tools
 
 
-def test_server_startup():
-    """测试服务器能正常启动"""
-    print("测试服务器启动...")
-    try:
-        process = subprocess.Popen(
-            [sys.executable, "main.py"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        time.sleep(2)
-        
-        if process.poll() is None:
-            print("✓ 服务器启动成功")
-            process.terminate()
-            process.wait()
-            return True
-        else:
-            _, stderr = process.communicate()
-            print(f"✗ 服务器启动失败: {stderr}")
-            return False
-    except Exception as e:
-        print(f"✗ 错误: {e}")
-        return False
+def test_main_exposes_mcp_server():
+    assert mcp is not None
 
 
-if __name__ == "__main__":
-    results = [test_imports(), test_server_startup()]
-    print(f"\n结果: {sum(results)}/{len(results)} 通过")
-    sys.exit(0 if all(results) else 1)
+def test_register_tools_registers_expected_tool_set():
+    mock_mcp = MagicMock()
+    decorator = MagicMock(side_effect=lambda func: func)
+    mock_mcp.tool.return_value = decorator
+
+    register_tools(mock_mcp)
+
+    registered = [call.args[0].__name__ for call in decorator.call_args_list]
+    assert registered == [
+        "dm_query",
+        "dm_explain_plan",
+        "dm_connect",
+        "dm_list_tables",
+        "dm_list_views",
+        "dm_describe_table",
+        "dm_get_view_definition",
+        "dm_update_config",
+    ]
+
+
+def test_db_exports_no_legacy_config_types():
+    assert hasattr(db, "DmConfig")
+    assert not hasattr(db, "PoolConfig")
+    assert not hasattr(db, "CacheConfig")

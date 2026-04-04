@@ -10,12 +10,7 @@ import time
 from typing import Dict, Any
 
 from core import create_response_metadata, mcp_tool_handler, mcp_cache
-from db import DmClient, DmConfig
-
-
-def get_database_client() -> DmClient:
-    """获取数据库客户端实例"""
-    return DmClient(DmConfig.from_config_file())
+from db import get_shared_client
 
 
 @mcp_cache()
@@ -66,30 +61,29 @@ def dm_explain_plan(select_sql: str) -> Dict[str, Any]:
     # 当前真实达梦环境支持 EXPLAIN 直返计划文本，优先走直接路径。
     explain_sql = f"EXPLAIN {select_sql.strip()}"
 
-    # 在同一 session 中执行
-    with get_database_client() as client:
-        result = client.execute_explain_plan(explain_sql)
-        execution_time = time.time() - start_time
-        additional_info = {
-            "statement_type": "EXPLAIN_PLAN",
-            "query_type": "EXPLAIN_PLAN",
-            "original_sql": select_sql,
-            "execution_statement_type": "EXPLAIN",
-            "diagnostic_path": "DIRECT_EXPLAIN",
-        }
-        plan_row_count = result.get("plan_table_row_count")
-        if plan_row_count is not None:
-            additional_info["plan_table_row_count"] = plan_row_count
+    client = get_shared_client()
+    result = client.execute_explain_plan(explain_sql)
+    execution_time = time.time() - start_time
+    additional_info = {
+        "statement_type": "EXPLAIN_PLAN",
+        "query_type": "EXPLAIN_PLAN",
+        "original_sql": select_sql,
+        "execution_statement_type": "EXPLAIN",
+        "diagnostic_path": "DIRECT_EXPLAIN",
+    }
+    plan_row_count = result.get("plan_table_row_count")
+    if plan_row_count is not None:
+        additional_info["plan_table_row_count"] = plan_row_count
 
-        return {
-            "success": True,
-            "data": result,
-            "sql": explain_sql,
-            "metadata": create_response_metadata(
-                operation="dm_explain_plan",
-                success=True,
-                execution_time=execution_time,
-                row_count=len(result.get("rows", [])),
-                additional_info=additional_info,
-            )
-        }
+    return {
+        "success": True,
+        "data": result,
+        "sql": explain_sql,
+        "metadata": create_response_metadata(
+            operation="dm_explain_plan",
+            success=True,
+            execution_time=execution_time,
+            row_count=len(result.get("rows", [])),
+            additional_info=additional_info,
+        )
+    }

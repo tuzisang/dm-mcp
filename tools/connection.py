@@ -12,12 +12,7 @@ from core import (
     create_response_metadata,
     mcp_tool_handler,
 )
-from db import DmClient, DmConfig
-
-
-def get_database_client() -> DmClient:
-    """获取数据库客户端实例"""
-    return DmClient(DmConfig.from_config_file())
+from db import get_shared_client
 
 
 def _first_row_as_dict(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -43,23 +38,20 @@ def dm_connect() -> Dict[str, Any]:
     """
     start_time = time.time()
 
-    # 使用上下文管理器进行正确的连接管理
-    # 注意：__enter__ 已经调用了 is_connected()，不需要再次调用
-    with get_database_client() as client:
-        # 执行简单的测试查询以验证连接是否正常工作
-        test_result = client.execute_query("SELECT 1 AS test_value FROM DUAL")
-        execution_time = time.time() - start_time
+    client = get_shared_client()
+    test_result = client.execute_query("SELECT 1 AS test_value FROM DUAL")
+    execution_time = time.time() - start_time
 
-        if test_result.get("rows"):
-            return {
-                "success": True,
-                "message": "数据库连接成功且响应正常",
-                "test_query_result": _first_row_as_dict(test_result),
-                "metadata": create_response_metadata(
-                    operation="dm_connect",
-                    success=True,
-                    execution_time=execution_time
-                )
-            }
-        else:
-            raise DatabaseConnectionError("连接已建立但测试查询失败")
+    if test_result.get("rows"):
+        return {
+            "success": True,
+            "message": "数据库连接成功且响应正常",
+            "test_query_result": _first_row_as_dict(test_result),
+            "metadata": create_response_metadata(
+                operation="dm_connect",
+                success=True,
+                execution_time=execution_time
+            )
+        }
+
+    raise DatabaseConnectionError("连接已建立但测试查询失败")
