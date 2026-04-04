@@ -26,6 +26,8 @@
 - 自动重启与重试策略
 - 写入 SQL 路径
 - 可配置的连接池/缓存/守护参数
+- 手工 `create_client()` / `with DmClient(...)` 生命周期路径
+- 探针脚本与部署验证脚本路径
 
 ## 配置
 
@@ -70,8 +72,23 @@ python -m pip install fastmcp
 启动 MCP：
 
 ```bash
+javac -cp 'lib/*' db/DmJdbcBridge.java
 python main.py
 ```
+
+## 正式支持的入口
+
+- 运行服务：`python main.py`
+- 工具注册：`tools.register_tools`
+- 共享运行时：`db.client.get_shared_client()`、`db.client.reset_shared_client()`
+- 开发验证：`python -m pytest tests -q`、`javac -cp 'lib/*' db/DmJdbcBridge.java`
+
+以下旧路径已经删除，不再支持：
+
+- `db/__init__.py`、`core/__init__.py` 这类包级宽导出
+- `create_client()` 和 `with DmClient(...)`
+- `scratch/ExplainProbe.*`
+- `scripts/verify_deployment.sh`
 
 ## 工具
 

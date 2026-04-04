@@ -16,10 +16,6 @@ from core.validators import validate_identifier, validate_optional_schema
 from .config import DmConfig
 
 
-class DmClientError(SQLExecutionError):
-    """数据库客户端错误。"""
-
-
 class DmClient:
     """达梦数据库客户端。"""
 
@@ -94,11 +90,11 @@ class DmClient:
             return
 
         if statement_type == "EXPLAIN":
-            raise DmClientError(
+            raise SQLExecutionError(
                 "目标环境未直接返回执行计划: EXPLAIN 已执行，但未返回任何计划文本或结果集"
             )
         if statement_type == "EXPLAIN_PLAN":
-            raise DmClientError(
+            raise SQLExecutionError(
                 "目标环境未产出可读取的执行计划: EXPLAIN PLAN 已执行，但未返回任何计划行"
             )
 
@@ -192,22 +188,13 @@ class DmClient:
         finally:
             self._java_bridge = None
 
-    def __enter__(self) -> "DmClient":
-        if not self.connect():
-            raise DatabaseConnectionError("无法建立数据库连接")
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.close()
-
 
 _shared_client: t.Optional[DmClient] = None
 _shared_client_lock = threading.Lock()
 
 
-def create_client(config_file: t.Optional[str] = None) -> DmClient:
-    config = DmConfig.from_config_file(config_file or "dm_config.json")
-    return DmClient(config)
+def _new_client() -> DmClient:
+    return DmClient(DmConfig.from_config_file())
 
 
 def get_shared_client() -> DmClient:
@@ -215,11 +202,11 @@ def get_shared_client() -> DmClient:
 
     with _shared_client_lock:
         if _shared_client is None:
-            _shared_client = create_client()
+            _shared_client = _new_client()
 
         if not _shared_client.connect():
             _shared_client.close()
-            _shared_client = create_client()
+            _shared_client = _new_client()
             if not _shared_client.connect():
                 raise DatabaseConnectionError("无法建立数据库连接")
 

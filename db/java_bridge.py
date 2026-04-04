@@ -7,16 +7,13 @@ Java 守护进程桥接服务。
 from __future__ import annotations
 
 import json
-import logging
 import os
 import queue
 import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-logger = logging.getLogger(__name__)
+from typing import Any, Dict, Optional
 
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 10
 DEFAULT_IO_TIMEOUT_SECONDS = 30
@@ -167,7 +164,6 @@ class JavaBridgeClient:
 
         status, value = result_queue.get()
         if status == "error":
-            logger.debug("stdout read failed: %s", value)
             return None
         return value
 
@@ -177,7 +173,6 @@ class JavaBridgeClient:
     def execute_query(
         self,
         sql: str,
-        params: Optional[List[Any]] = None,
         statement_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self._lock:
@@ -185,8 +180,6 @@ class JavaBridgeClient:
                 raise JavaBridgeError("Java 守护进程未运行")
 
             request: Dict[str, Any] = {"sql": sql}
-            if params:
-                request["params"] = params
             if statement_type:
                 request["statement_type"] = statement_type
 
@@ -251,9 +244,3 @@ class JavaBridgeClient:
                     self.process.wait(timeout=2)
         finally:
             self.process = None
-
-    def __enter__(self) -> "JavaBridgeClient":
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.shutdown()

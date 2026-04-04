@@ -7,12 +7,10 @@
 import time
 from typing import Dict, Any
 
-from core import (
-    DatabaseConnectionError,
-    create_response_metadata,
-    mcp_tool_handler,
-)
-from db import get_shared_client
+from core.decorators import mcp_tool_handler
+from core.exceptions import DatabaseConnectionError
+from core.response import create_response_metadata
+from db.client import get_shared_client
 
 
 def _first_row_as_dict(result: Dict[str, Any]) -> Dict[str, Any]:

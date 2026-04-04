@@ -9,7 +9,6 @@ from functools import wraps
 from typing import Callable, Any, Dict
 
 from .exceptions import (
-    DMMCPError,
     DatabaseConnectionError,
     InvalidParameterError,
     SQLExecutionError,

@@ -8,8 +8,11 @@ import re
 import time
 from typing import Dict, Any, Optional
 
-from core import clear_cache, create_response_metadata, mcp_tool_handler
-from db import get_config_manager, reset_shared_client
+from core.cache import clear_cache
+from core.decorators import mcp_tool_handler
+from core.response import create_response_metadata
+from db.client import reset_shared_client
+from db.config import get_config_manager
 
 
 @mcp_tool_handler("dm_update_config")

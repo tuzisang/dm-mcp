@@ -1,8 +1,11 @@
 """服务器装配层的轻量单元测试。"""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
-import db
+import tools
+from db.client import DmClient
+from db.config import DmConfig
 from main import mcp
 from tools import register_tools
 
@@ -31,7 +34,9 @@ def test_register_tools_registers_expected_tool_set():
     ]
 
 
-def test_db_exports_no_legacy_config_types():
-    assert hasattr(db, "DmConfig")
-    assert not hasattr(db, "PoolConfig")
-    assert not hasattr(db, "CacheConfig")
+def test_runtime_imports_are_explicit_modules():
+    assert DmClient is not None
+    assert DmConfig is not None
+    assert tools.__all__ == ["register_tools"]
+    assert not Path("db/__init__.py").exists()
+    assert not Path("core/__init__.py").exists()

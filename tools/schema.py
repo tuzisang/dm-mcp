@@ -7,13 +7,10 @@
 import time
 from typing import Dict, Any, Optional
 
-from core import (
-    validate_identifier,
-    validate_optional_schema,
-    create_response_metadata,
-    mcp_tool_handler,
-)
-from db import get_shared_client
+from core.decorators import mcp_tool_handler
+from core.response import create_response_metadata
+from core.validators import validate_identifier, validate_optional_schema
+from db.client import get_shared_client
 
 
 def _row_count(result: Dict[str, Any]) -> int:

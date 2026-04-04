@@ -1,23 +1,19 @@
-"""
-MCP 工具模块
-
-包含所有数据库操作工具
-"""
-
-from .query import dm_query
-from .explain_plan import dm_explain_plan
-from .connection import dm_connect
-from .schema import dm_list_tables, dm_list_views, dm_describe_table, dm_get_view_definition
-from .config import dm_update_config
+"""MCP 工具注册入口。"""
 
 
 def register_tools(mcp):
-    """
-    注册所有工具到 MCP 服务器
+    """注册当前正式支持的工具集合。"""
+    from .config import dm_update_config
+    from .connection import dm_connect
+    from .explain_plan import dm_explain_plan
+    from .query import dm_query
+    from .schema import (
+        dm_describe_table,
+        dm_get_view_definition,
+        dm_list_tables,
+        dm_list_views,
+    )
 
-    Args:
-        mcp: FastMCP 服务器实例
-    """
     mcp.tool()(dm_query)
     mcp.tool()(dm_explain_plan)
     mcp.tool()(dm_connect)
@@ -28,14 +24,4 @@ def register_tools(mcp):
     mcp.tool()(dm_update_config)
 
 
-__all__ = [
-    "dm_query",
-    "dm_explain_plan",
-    "dm_connect",
-    "dm_list_tables",
-    "dm_list_views",
-    "dm_describe_table",
-    "dm_get_view_definition",
-    "dm_update_config",
-    "register_tools",
-]
+__all__ = ["register_tools"]
