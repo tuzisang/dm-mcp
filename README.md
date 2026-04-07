@@ -60,7 +60,7 @@
 前提：
 
 - Python `>= 3.12`
-- Java 8+
+- Java 8+（首次启动或 `db/DmJdbcBridge.java` 更新后需要可用的 `javac`，推荐直接使用 JDK）
 - `lib/` 下的 JDBC 与 HikariCP JAR 已就位
 
 安装 Python 依赖：
@@ -72,16 +72,21 @@ python -m pip install fastmcp
 启动 MCP：
 
 ```bash
-javac -cp 'lib/*' db/DmJdbcBridge.java
 python main.py
 ```
+
+说明：
+
+- 启动前，Python 桥接会检查 `db/DmJdbcBridge.class` 是否存在且是否晚于 `db/DmJdbcBridge.java`
+- 如果 class 缺失或已过期，会自动执行 `javac -cp 'lib/*' db/DmJdbcBridge.java`
+- 如果本地没有 `javac`，或编译/启动失败，错误信息会直接保留 `javac`/`java` 的真实输出，便于定位问题
 
 ## 正式支持的入口
 
 - 运行服务：`python main.py`
 - 工具注册：`tools.register_tools`
 - 共享运行时：`db.client.get_shared_client()`、`db.client.reset_shared_client()`
-- 开发验证：`python -m pytest tests -q`、`javac -cp 'lib/*' db/DmJdbcBridge.java`
+- 开发验证：`python -m pytest tests -q`、可选手工预编译 `javac -cp 'lib/*' db/DmJdbcBridge.java`
 
 以下旧路径已经删除，不再支持：
 
@@ -142,3 +147,5 @@ python -m pytest tests -q
 ```bash
 javac -cp 'lib/*' db/DmJdbcBridge.java
 ```
+
+这一步对开发验证和排查仍然有用，但正常启动路径会在需要时自动编译。

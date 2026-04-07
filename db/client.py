@@ -14,6 +14,7 @@ from core.exceptions import DatabaseConnectionError, SQLExecutionError
 from core.validators import validate_identifier, validate_optional_schema
 
 from .config import DmConfig
+from .java_bridge import JavaBridgeError
 
 
 class DmClient:
@@ -42,9 +43,19 @@ class DmClient:
 
     def connect(self) -> bool:
         try:
-            return self._get_bridge().is_alive()
-        except Exception:
+            self.ensure_connected()
+            return True
+        except DatabaseConnectionError:
             return False
+
+    def ensure_connected(self) -> None:
+        try:
+            bridge = self._get_bridge()
+        except Exception as exc:
+            raise self._wrap_connection_error(exc) from exc
+
+        if not bridge.is_alive():
+            raise DatabaseConnectionError("Java 守护进程未运行")
 
     def is_connected(self) -> bool:
         return self._java_bridge is not None and self._java_bridge.is_alive()
@@ -54,13 +65,19 @@ class DmClient:
         sql: str,
         statement_type: t.Optional[str] = None,
     ) -> dict[str, t.Any]:
-        bridge = self._get_bridge()
+        try:
+            bridge = self._get_bridge()
+        except Exception as exc:
+            raise self._wrap_connection_error(exc) from exc
+
         if not bridge.is_alive():
             raise DatabaseConnectionError("Java 守护进程未运行")
 
         try:
             result = bridge.execute_query(sql, statement_type=statement_type)
         except Exception as exc:
+            if isinstance(exc, JavaBridgeError):
+                raise self._wrap_connection_error(exc) from exc
             raise SQLExecutionError(f"查询失败: {exc}") from exc
 
         if not result.get("success", True):
@@ -188,6 +205,13 @@ class DmClient:
         finally:
             self._java_bridge = None
 
+    def _wrap_connection_error(self, exc: Exception) -> DatabaseConnectionError:
+        if isinstance(exc, DatabaseConnectionError):
+            return exc
+        if isinstance(exc, JavaBridgeError):
+            return DatabaseConnectionError(str(exc))
+        return DatabaseConnectionError(f"初始化数据库桥接失败: {exc}")
+
 
 _shared_client: t.Optional[DmClient] = None
 _shared_client_lock = threading.Lock()
@@ -204,11 +228,12 @@ def get_shared_client() -> DmClient:
         if _shared_client is None:
             _shared_client = _new_client()
 
-        if not _shared_client.connect():
+        try:
+            _shared_client.ensure_connected()
+        except DatabaseConnectionError:
             _shared_client.close()
             _shared_client = _new_client()
-            if not _shared_client.connect():
-                raise DatabaseConnectionError("无法建立数据库连接")
+            _shared_client.ensure_connected()
 
         return _shared_client
 

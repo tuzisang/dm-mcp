@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -20,6 +21,14 @@ DEFAULT_IO_TIMEOUT_SECONDS = 30
 DEFAULT_POOL_MIN_CONNECTIONS = 2
 DEFAULT_POOL_MAX_CONNECTIONS = 20
 DEFAULT_POOL_CONNECTION_TIMEOUT_MS = 60000
+
+BRIDGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BRIDGE_DIR.parent
+LIB_DIR = PROJECT_ROOT / "lib"
+BRIDGE_SOURCE_FILE = BRIDGE_DIR / "DmJdbcBridge.java"
+BRIDGE_CLASS_FILE = BRIDGE_DIR / "DmJdbcBridge.class"
+
+_BRIDGE_COMPILE_LOCK = threading.Lock()
 
 
 class JavaBridgeError(Exception):
@@ -44,16 +53,8 @@ class JavaBridgeClient:
         if not os.path.exists(java_exe):
             raise JavaBridgeError(f"Java 可执行文件不存在: {java_exe}")
 
-        lib_dir = Path(__file__).parent.parent / "lib"
-        classpath = [
-            str(lib_dir / "dm-jdbc-1.8.jar"),
-            str(lib_dir / "HikariCP-4.0.3.jar"),
-            str(lib_dir / "slf4j-api-2.0.12.jar"),
-            str(lib_dir / "jackson-core-2.10.4.jar"),
-            str(lib_dir / "jackson-databind-2.10.0.jar"),
-            str(lib_dir / "jackson-annotations-2.10.0.jar"),
-            str(Path(__file__).parent),
-        ]
+        self._ensure_bridge_class_ready(java_home)
+        classpath = os.pathsep.join([str(LIB_DIR / "*"), str(BRIDGE_DIR)])
 
         env = os.environ.copy()
         env["JAVA_HOME"] = java_home
@@ -69,7 +70,7 @@ class JavaBridgeClient:
 
         try:
             self.process = subprocess.Popen(
-                [java_exe, "-cp", ":".join(classpath), "DmJdbcBridge"],
+                [java_exe, "-cp", classpath, "DmJdbcBridge"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -91,23 +92,81 @@ class JavaBridgeClient:
         if java_home:
             return java_home
 
-        try:
-            result = subprocess.run(
-                ["which", "java"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            raise JavaBridgeError("找不到 Java 运行时") from exc
-
-        if result.returncode == 0 and result.stdout.strip():
-            java_path = result.stdout.strip()
+        java_path = shutil.which("java")
+        if java_path:
             return os.path.dirname(os.path.dirname(java_path))
 
         raise JavaBridgeError(
             "找不到 Java 运行时。请确保已安装 Java 8+ 或设置 JAVA_HOME。"
         )
+
+    def _ensure_bridge_class_ready(self, java_home: str) -> None:
+        if not BRIDGE_SOURCE_FILE.exists():
+            raise JavaBridgeError(f"Java 桥接源码不存在: {BRIDGE_SOURCE_FILE}")
+
+        if not self._bridge_class_needs_compile():
+            return
+
+        with _BRIDGE_COMPILE_LOCK:
+            if not self._bridge_class_needs_compile():
+                return
+
+            javac_exe = self._find_javac(java_home)
+            classpath = os.pathsep.join([str(LIB_DIR / "*"), str(BRIDGE_DIR)])
+
+            try:
+                result = subprocess.run(
+                    [javac_exe, "-cp", classpath, str(BRIDGE_SOURCE_FILE)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env={**os.environ, "JAVA_HOME": java_home},
+                )
+            except OSError as exc:
+                raise JavaBridgeError(f"启动 javac 失败: {exc}") from exc
+
+            if result.returncode != 0:
+                detail = self._format_process_output(result.stdout, result.stderr)
+                if detail:
+                    raise JavaBridgeError(f"编译 DmJdbcBridge.java 失败: {detail}")
+                raise JavaBridgeError(
+                    f"编译 DmJdbcBridge.java 失败: javac 退出码 {result.returncode}"
+                )
+
+            if not BRIDGE_CLASS_FILE.exists():
+                raise JavaBridgeError(
+                    f"编译 DmJdbcBridge.java 失败: 未生成 {BRIDGE_CLASS_FILE.name}"
+                )
+
+    def _bridge_class_needs_compile(self) -> bool:
+        if not BRIDGE_CLASS_FILE.exists():
+            return True
+
+        try:
+            return BRIDGE_SOURCE_FILE.stat().st_mtime > BRIDGE_CLASS_FILE.stat().st_mtime
+        except OSError:
+            return True
+
+    def _find_javac(self, java_home: str) -> str:
+        javac_in_java_home = os.path.join(java_home, "bin", "javac")
+        if os.path.exists(javac_in_java_home):
+            return javac_in_java_home
+
+        javac_path = shutil.which("javac")
+        if javac_path:
+            return javac_path
+
+        raise JavaBridgeError(
+            "找不到 javac。首次启动或 Java 桥接源码更新时需要可用的 JDK。"
+        )
+
+    def _format_process_output(
+        self,
+        stdout: Optional[str],
+        stderr: Optional[str],
+    ) -> str:
+        parts = [text.strip() for text in (stderr, stdout) if text and text.strip()]
+        return "\n".join(parts)
 
     def _wait_for_ready(self) -> None:
         if self.process is None or self.process.stdout is None:
@@ -117,7 +176,10 @@ class JavaBridgeClient:
         while time.time() < deadline:
             if self.process.poll() is not None:
                 stderr = self.process.stderr.read() if self.process.stderr else ""
-                raise JavaBridgeError(f"Java 守护进程启动失败: {stderr}")
+                detail = self._format_process_output(None, stderr)
+                if detail:
+                    raise JavaBridgeError(f"Java 守护进程启动失败: {detail}")
+                raise JavaBridgeError("Java 守护进程启动失败")
 
             line = self._read_line_with_timeout(timeout=1)
             if line is None:
