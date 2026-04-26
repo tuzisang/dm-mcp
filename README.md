@@ -7,6 +7,27 @@
 - `dm_query` 与 `dm_explain_plan` 使用约 60 秒的内存缓存
 - 配置更新后立即重建共享运行时并清空缓存
 
+## 为什么选择 Java 桥接
+
+达梦官方 Python 驱动 (`dmPython`) 依赖原生扩展，在以下场景会遇到兼容性问题：
+
+- **Apple Silicon Mac**（M系列芯片）：Python 原生扩展需要重新编译，部分场景下难以找到适配版本
+- **跨平台开发**：Windows / macOS / Linux 需要各自编译或寻找对应版本的 Python 原生驱动
+- **环境切换**：开发者换电脑或 CI/CD 迁移时，驱动环境需要重新搭建
+
+本项目采用 **Python + Java 桥接** 的架构解决这个问题：
+
+```
+Python (MCP Server) <--stdin/stdout--> Java (守护进程) <--JDBC--> 达梦数据库
+```
+
+- Python 只负责任务调度和协议处理，不直接接触数据库
+- Java 进程通过标准 JDBC 驱动连接达梦，天然跨平台（只要有 JRE 就能跑）
+- JDBC 驱动由达梦官方维护，兼容性和稳定性有保障
+- Python 端无需安装任何数据库相关的原生依赖
+
+作者从 Windows 切换到 macOS 的 Apple Silicon 机器后，原有的 Python 达梦驱动无法直接使用，正是这个原因促使了 Java 桥接方案的实现。
+
 ## 运行模型
 
 主流程只有一条：
