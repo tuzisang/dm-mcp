@@ -225,28 +225,12 @@ dm_connect
 
 Claude Code 支持通过 `settings.json` 注册本地 MCP 服务器。
 
-### 步骤一：获取 MCP 服务器命令
-
-本项目以 **stdio** 模式运行，命令格式为：
-
-```bash
-/项目路径/main.py
-```
-
-完整路径示例：
-
-```
-/Users/yourname/projects/dm-mcp/main.py
-```
-
-### 步骤二：编辑 Claude Code 设置
+### 步骤一：编辑 Claude Code 设置
 
 打开 Claude Code 设置文件：
 
 ```bash
 # macOS
-code --open-external-settings
-# 或直接编辑
 nano ~/.claude/settings.json
 ```
 
@@ -256,20 +240,23 @@ nano ~/.claude/settings.json
 {
   "mcpServers": {
     "dm-mcp": {
-      "command": "/Users/yourname/projects/dm-mcp/main.py",
-      "env": {
-        "DM_HOST": "your_host",
-        "DM_PORT": "5236",
-        "DM_USER": "your_user",
-        "DM_PASSWORD": "your_password",
-        "DM_SCHEMA": "your_schema"
-      }
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/yourname/projects/dm-mcp",
+        "run",
+        "main.py"
+      ],
+      "env": {},
+      "type": "stdio"
     }
   }
 }
 ```
 
-### 步骤三：重启 Claude Code
+> **注意**：将 `/Users/yourname/projects/dm-mcp` 替换为你的实际项目路径。
+
+### 步骤二：重启 Claude Code
 
 保存设置后，重启 Claude Code。MCP 服务器会自动启动并注册所有工具。
 
