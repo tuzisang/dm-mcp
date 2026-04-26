@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import IO, Any, Dict, Optional
 
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 10
 DEFAULT_IO_TIMEOUT_SECONDS = 30
@@ -208,11 +208,12 @@ class JavaBridgeClient:
         if self.process is None or self.process.stdout is None:
             return None
 
+        stdout: IO[Any] = self.process.stdout
         result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
         def reader() -> None:
             try:
-                result_queue.put(("success", self.process.stdout.readline()))
+                result_queue.put(("success", stdout.readline()))
             except Exception as exc:  # pragma: no cover - defensive
                 result_queue.put(("error", exc))
 

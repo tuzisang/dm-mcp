@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 
 DEFAULT_CACHE_TTL = 60.0
 
@@ -111,8 +111,8 @@ def mcp_cache(ttl: float = DEFAULT_CACHE_TTL):
                 result["metadata"]["cache_status"] = "miss" if should_cache else "skip"
             return result
 
-        wrapper._cache_ttl = ttl
-        return wrapper
+        setattr(wrapper, "_cache_ttl", ttl)
+        return cast(Callable, wrapper)
 
     return decorator
 

@@ -24,3 +24,11 @@ repos:
       - id: ruff
         args: ['--fix']
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        description: Type check Python code
+        entry: bash -c 'uv run mypy . --explicit-package-bases'
+        language: system
