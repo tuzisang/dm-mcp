@@ -170,3 +170,118 @@ javac -cp 'lib/*' db/DmJdbcBridge.java
 ```
 
 这一步对开发验证和排查仍然有用，但正常启动路径会在需要时自动编译。
+
+## 快速上手
+
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/tuzisang/dm-mcp.git
+cd dm-mcp
+```
+
+### 2. 配置数据库连接
+
+复制配置示例文件并修改：
+
+```bash
+cp dm_config.json.example dm_config.json
+# 编辑 dm_config.json，填入你的数据库信息
+```
+
+或通过环境变量配置：
+
+```bash
+export DM_HOST=your_host
+export DM_PORT=5236
+export DM_USER=your_user
+export DM_PASSWORD=your_password
+export DM_SCHEMA=your_schema
+```
+
+### 3. 启动
+
+```bash
+# 安装依赖
+python -m pip install fastmcp
+
+# 启动 MCP 服务（stdio 模式，供 Claude Code 使用）
+python main.py
+```
+
+启动后可以通过 MCP 协议直接使用 `dm_query`、`dm_list_tables` 等工具查询达梦数据库。
+
+### 4. 验证连接
+
+在 Claude Code 中连接成功后，可运行：
+
+```
+dm_connect
+```
+
+返回成功信息即表示数据库连接正常。
+
+## 部署为 Claude Code MCP 服务
+
+Claude Code 支持通过 `settings.json` 注册本地 MCP 服务器。
+
+### 步骤一：获取 MCP 服务器命令
+
+本项目以 **stdio** 模式运行，命令格式为：
+
+```bash
+/项目路径/main.py
+```
+
+完整路径示例：
+
+```
+/Users/yourname/projects/dm-mcp/main.py
+```
+
+### 步骤二：编辑 Claude Code 设置
+
+打开 Claude Code 设置文件：
+
+```bash
+# macOS
+code --open-external-settings
+# 或直接编辑
+nano ~/.claude/settings.json
+```
+
+添加 MCP 服务器配置：
+
+```json
+{
+  "mcpServers": {
+    "dm-mcp": {
+      "command": "/Users/yourname/projects/dm-mcp/main.py",
+      "env": {
+        "DM_HOST": "your_host",
+        "DM_PORT": "5236",
+        "DM_USER": "your_user",
+        "DM_PASSWORD": "your_password",
+        "DM_SCHEMA": "your_schema"
+      }
+    }
+  }
+}
+```
+
+### 步骤三：重启 Claude Code
+
+保存设置后，重启 Claude Code。MCP 服务器会自动启动并注册所有工具。
+
+### 可用工具一览
+
+| 工具 | 说明 |
+|------|------|
+| `dm_connect` | 测试数据库连接 |
+| `dm_query` | 执行只读 SQL 查询 |
+| `dm_explain_plan` | 分析 SELECT 执行计划 |
+| `dm_list_tables` | 列出数据库表 |
+| `dm_list_views` | 列出数据库视图 |
+| `dm_describe_table` | 查看表结构 |
+| `dm_get_view_definition` | 查看视图定义 |
+| `dm_update_config` | 运行时更新数据库配置 |
