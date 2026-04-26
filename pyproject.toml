@@ -6,10 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=2.0.0",
-    "hypothesis>=6.148.7",
 ]
 
-# JAR 依赖信息（供参考）
 [project.optional-dependencies]
 # Java JAR files in lib/ directory:
 # - dm-jdbc-1.8.jar (达梦 JDBC 驱动)

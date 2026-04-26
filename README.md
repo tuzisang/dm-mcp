@@ -23,7 +23,7 @@ cp dm_config.json.example dm_config.json
 # 编辑 dm_config.json 填入你的数据库信息
 
 # 安装依赖并启动
-uv run pip install fastmcp
+uv sync
 uv run python main.py
 ```
 
