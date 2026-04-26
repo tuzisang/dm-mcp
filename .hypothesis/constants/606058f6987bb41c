@@ -1,4 +1,0 @@
-# file: D:\workcode\测试demo\dm-mcp\core\decorators.py
-# hypothesis_version: 6.148.7
-
-['connection_error', 'error', 'error_type', 'metadata', 'pool', 'pool_error', 'pool_timeout_error', 'runtime_error', 'sql_error', 'success', 'timeout', 'timeout_error', 'unexpected_error', 'validation_error', '超时', '连接池']

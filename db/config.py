@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-DEFAULT_DB_HOST = "192.168.2.38"
+DEFAULT_DB_HOST = ""
 DEFAULT_DB_PORT = 5236
-DEFAULT_DB_USER = "SYSDBA"
-DEFAULT_DB_PASSWORD = "SYSDBA001"
-DEFAULT_DB_SCHEMA = "aiops"
+DEFAULT_DB_USER = ""
+DEFAULT_DB_PASSWORD = ""
+DEFAULT_DB_SCHEMA = ""
 DEFAULT_QUERY_TIMEOUT = 120
 
 

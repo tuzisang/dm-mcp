@@ -98,11 +98,11 @@ The project uses a configuration file-based approach for database connection man
 
 ### Configuration File (dm_config.json)
 Default connection settings are automatically stored in `dm_config.json`:
-- Host: 192.168.2.38
+- Host: your_host
 - Port: 5236
-- User: SYSDBA
-- Password: SYSDBA001
-- Schema: aiops
+- User: your_user
+- Password: your_password_here
+- Schema: your_schema
 
 **新增配置参数** (向后兼容):
 ```json

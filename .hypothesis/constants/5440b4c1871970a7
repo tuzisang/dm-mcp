@@ -1,4 +1,0 @@
-# file: D:\workcode\测试demo\dm-mcp\core\validators.py
-# hypothesis_version: 6.148.7
-
-[128, '--', '/\\*.*?\\*/', 'ALTER', 'CREATE', 'DELETE', 'DROP', 'EXEC', 'EXECUTE', 'GRANT', 'INSERT', 'MERGE', 'REVOKE', 'SQL 查询不能为空', 'TRUNCATE', 'UPDATE', '[;\'\\"]', '^\\s*SELECT\\s', 'identifier', 'schema name', '出于安全考虑，只允许 SELECT 查询']

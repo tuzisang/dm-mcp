@@ -13,5 +13,34 @@ wheels/
 db/*.class
 *.class
 
+# Runtime configuration (may contain secrets)
+dm_config.json
+dm_config.json.example
+.env
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
 # Test files
 test_*.py
+
+# Coverage
+.coverage
+htmlcov/
+
+# Hypothesis test artifacts
+.hypothesis/
+
+# Internal kiro prompts
+.kiro/
+
+# Internal workflow (Claude Code / Codex agents)
+.claude/
+.codex/
+.agents/
+skills-lock.json
+
+# OpenSpec workflow history
+openspec/changes/

@@ -1,4 +1,0 @@
-# file: D:\workcode\测试demo\dm-mcp\core\cache.py
-# hypothesis_version: 6.148.7
-
-[120.0, 'cache_age', 'cache_status', 'hit', 'keys', 'metadata', 'miss', 'size', '|']

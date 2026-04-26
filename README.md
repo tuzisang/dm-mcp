@@ -38,11 +38,11 @@
 ```json
 {
   "database": {
-    "host": "192.168.2.38",
+    "host": "your_host",
     "port": 5236,
-    "user": "SYSDBA",
-    "password": "SYSDBA001",
-    "schema": "aiops",
+    "user": "your_user",
+    "password": "your_password_here",
+    "schema": "your_schema",
     "query_timeout": 120
   }
 }
