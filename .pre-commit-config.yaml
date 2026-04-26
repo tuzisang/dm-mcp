@@ -1,0 +1,26 @@
+# pre-commit hooks for dm-mcp
+# install: pre-commit install
+# run manually: pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=10240']
+        exclude: '^lib/'
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: debug-statements
+        files: '\.py$'
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.0
+    hooks:
+      - id: ruff
+        args: ['--fix']
+      - id: ruff-format

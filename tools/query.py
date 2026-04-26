@@ -108,5 +108,5 @@ def dm_query(sql: str) -> Dict[str, Any]:
             execution_time=execution_time,
             row_count=len(result.get("rows", [])),
             additional_info=additional_info,
-        )
+        ),
     }

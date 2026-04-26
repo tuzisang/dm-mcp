@@ -60,7 +60,9 @@ def test_bridge_class_needs_compile_when_source_is_newer(tmp_path, monkeypatch):
     assert client._bridge_class_needs_compile() is True
 
 
-def test_ensure_bridge_class_ready_invokes_javac_when_class_missing(tmp_path, monkeypatch):
+def test_ensure_bridge_class_ready_invokes_javac_when_class_missing(
+    tmp_path, monkeypatch
+):
     source_file, class_file = _patch_bridge_paths(monkeypatch, tmp_path)
     source_file.write_text("public class DmJdbcBridge {}", encoding="utf-8")
     commands = []
@@ -77,12 +79,14 @@ def test_ensure_bridge_class_ready_invokes_javac_when_class_missing(tmp_path, mo
     client._ensure_bridge_class_ready("/fake/java-home")
 
     assert class_file.exists()
-    assert commands == [[
-        "/fake/bin/javac",
-        "-cp",
-        os.pathsep.join([str((tmp_path / "lib") / "*"), str(tmp_path / "db")]),
-        str(source_file),
-    ]]
+    assert commands == [
+        [
+            "/fake/bin/javac",
+            "-cp",
+            os.pathsep.join([str((tmp_path / "lib") / "*"), str(tmp_path / "db")]),
+            str(source_file),
+        ]
+    ]
 
 
 def test_ensure_bridge_class_ready_surfaces_javac_output(tmp_path, monkeypatch):
@@ -107,7 +111,9 @@ def test_ensure_bridge_class_ready_reports_missing_javac(tmp_path, monkeypatch):
     client = _bootstrap_client()
 
     def raise_missing_javac(java_home):
-        raise JavaBridgeError("找不到 javac。首次启动或 Java 桥接源码更新时需要可用的 JDK。")
+        raise JavaBridgeError(
+            "找不到 javac。首次启动或 Java 桥接源码更新时需要可用的 JDK。"
+        )
 
     monkeypatch.setattr(client, "_find_javac", raise_missing_javac)
 
@@ -135,7 +141,9 @@ def test_get_shared_client_propagates_bridge_startup_root_cause():
     )
 
     with patch.object(client_module, "_new_client", side_effect=[first, second]):
-        with pytest.raises(DatabaseConnectionError, match="ClassNotFoundException: DmJdbcBridge"):
+        with pytest.raises(
+            DatabaseConnectionError, match="ClassNotFoundException: DmJdbcBridge"
+        ):
             get_shared_client()
 
     assert first.closed is True

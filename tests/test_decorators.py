@@ -2,8 +2,6 @@
 装饰器基础测试
 """
 
-import pytest
-import time
 from core.decorators import mcp_tool_handler
 from core.exceptions import InvalidParameterError, DatabaseConnectionError
 
@@ -14,7 +12,11 @@ class TestMcpToolHandler:
     def test_successful_execution(self):
         @mcp_tool_handler("test_op")
         def success_func():
-            return {"success": True, "data": [1, 2, 3], "metadata": {"operation": "test_op"}}
+            return {
+                "success": True,
+                "data": [1, 2, 3],
+                "metadata": {"operation": "test_op"},
+            }
 
         result = success_func()
         assert result["success"] is True

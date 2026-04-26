@@ -81,7 +81,9 @@ def dm_update_config(
             if len(user) > 128:
                 validation_errors.append("用户名过长（最多128个字符）")
             elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", user):
-                validation_errors.append("用户名必须以字母或下划线开头，且只能包含字母、数字和下划线")
+                validation_errors.append(
+                    "用户名必须以字母或下划线开头，且只能包含字母、数字和下划线"
+                )
             else:
                 updated_fields.append("user")
 
@@ -101,7 +103,9 @@ def dm_update_config(
             if len(schema) > 128:
                 validation_errors.append("模式名过长（最多128个字符）")
             elif not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", schema):
-                validation_errors.append("模式名必须以字母或下划线开头，且只能包含字母、数字和下划线")
+                validation_errors.append(
+                    "模式名必须以字母或下划线开头，且只能包含字母、数字和下划线"
+                )
             else:
                 updated_fields.append("schema")
         elif schema == "":
@@ -130,8 +134,8 @@ def dm_update_config(
                 operation="dm_update_config",
                 success=False,
                 execution_time=time.time() - start_time,
-                additional_info={"error_type": "validation_error"}
-            )
+                additional_info={"error_type": "validation_error"},
+            ),
         }
 
     # 如果没有提供任何参数，返回提示信息
@@ -147,8 +151,11 @@ def dm_update_config(
                 success=True,
                 execution_time=time.time() - start_time,
                 row_count=0,
-                additional_info={"fields_updated": 0, "config_file": config_manager.get_config_file_path()}
-            )
+                additional_info={
+                    "fields_updated": 0,
+                    "config_file": config_manager.get_config_file_path(),
+                },
+            ),
         }
 
     # 执行配置更新
@@ -184,8 +191,8 @@ def dm_update_config(
                     "config_file": config_manager.get_config_file_path(),
                     "shared_runtime_reset": True,
                     "cache_cleared": True,
-                }
-            )
+                },
+            ),
         }
     else:
         return {
@@ -197,6 +204,6 @@ def dm_update_config(
                 operation="dm_update_config",
                 success=False,
                 execution_time=execution_time,
-                additional_info={"error_type": "update_error"}
-            )
+                additional_info={"error_type": "update_error"},
+            ),
         }

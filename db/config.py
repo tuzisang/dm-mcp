@@ -34,7 +34,9 @@ class DmConfig:
     def from_dict(cls, config: Dict[str, Any]) -> "DmConfig":
         return cls(
             host=_coerce_string(config.get("host"), DEFAULT_DB_HOST),
-            port=_coerce_int(config.get("port"), DEFAULT_DB_PORT, minimum=1, maximum=65535),
+            port=_coerce_int(
+                config.get("port"), DEFAULT_DB_PORT, minimum=1, maximum=65535
+            ),
             user=_coerce_string(config.get("user"), DEFAULT_DB_USER),
             password=_coerce_string(config.get("password"), DEFAULT_DB_PASSWORD),
             schema=_coerce_string(config.get("schema"), DEFAULT_DB_SCHEMA),

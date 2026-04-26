@@ -42,6 +42,7 @@ def dm_explain_plan(select_sql: str) -> Dict[str, Any]:
 
     # 验证输入是 SELECT 语句（不含 EXPLAIN 前缀）
     from core.validators import _strip_sql_comments, InvalidParameterError
+
     upper = _strip_sql_comments(select_sql).strip().upper()
 
     if not upper.startswith("SELECT"):
@@ -51,8 +52,18 @@ def dm_explain_plan(select_sql: str) -> Dict[str, Any]:
 
     # 检查危险关键字
     dangerous_keywords = [
-        "DROP", "DELETE", "UPDATE", "INSERT", "CREATE", "ALTER",
-        "EXEC", "EXECUTE", "TRUNCATE", "MERGE", "GRANT", "REVOKE"
+        "DROP",
+        "DELETE",
+        "UPDATE",
+        "INSERT",
+        "CREATE",
+        "ALTER",
+        "EXEC",
+        "EXECUTE",
+        "TRUNCATE",
+        "MERGE",
+        "GRANT",
+        "REVOKE",
     ]
     for keyword in dangerous_keywords:
         if __import__("re").search(rf"\b{keyword}\b", upper):
@@ -87,5 +98,5 @@ def dm_explain_plan(select_sql: str) -> Dict[str, Any]:
             execution_time=execution_time,
             row_count=len(result.get("rows", [])),
             additional_info=additional_info,
-        )
+        ),
     }

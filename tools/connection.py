@@ -46,10 +46,8 @@ def dm_connect() -> Dict[str, Any]:
             "message": "数据库连接成功且响应正常",
             "test_query_result": _first_row_as_dict(test_result),
             "metadata": create_response_metadata(
-                operation="dm_connect",
-                success=True,
-                execution_time=execution_time
-            )
+                operation="dm_connect", success=True, execution_time=execution_time
+            ),
         }
 
     raise DatabaseConnectionError("连接已建立但测试查询失败")

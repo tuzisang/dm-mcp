@@ -50,8 +50,8 @@ def dm_list_tables(schema: Optional[str] = None) -> Dict[str, Any]:
             success=True,
             execution_time=execution_time,
             row_count=_row_count(result),
-            additional_info={"schema_filtered": validated_schema is not None}
-        )
+            additional_info={"schema_filtered": validated_schema is not None},
+        ),
     }
 
 
@@ -87,8 +87,8 @@ def dm_list_views(schema: Optional[str] = None) -> Dict[str, Any]:
             success=True,
             execution_time=execution_time,
             row_count=_row_count(result),
-            additional_info={"schema_filtered": validated_schema is not None}
-        )
+            additional_info={"schema_filtered": validated_schema is not None},
+        ),
     }
 
 
@@ -132,14 +132,16 @@ def dm_describe_table(table_name: str, schema: Optional[str] = None) -> Dict[str
             row_count=_row_count(result),
             additional_info={
                 "table_name": validated_table_name,
-                "schema": validated_schema
-            }
-        )
+                "schema": validated_schema,
+            },
+        ),
     }
 
 
 @mcp_tool_handler("dm_get_view_definition")
-def dm_get_view_definition(view_name: str, schema: Optional[str] = None) -> Dict[str, Any]:
+def dm_get_view_definition(
+    view_name: str, schema: Optional[str] = None
+) -> Dict[str, Any]:
     """
     获取视图的完整 CREATE VIEW 语句和SQL定义。
 
@@ -178,7 +180,7 @@ def dm_get_view_definition(view_name: str, schema: Optional[str] = None) -> Dict
             row_count=_row_count(result),
             additional_info={
                 "view_name": validated_view_name,
-                "schema": validated_schema
-            }
-        )
+                "schema": validated_schema,
+            },
+        ),
     }

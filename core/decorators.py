@@ -107,6 +107,7 @@ def mcp_tool_handler(operation_name: str):
     Returns:
         装饰器函数
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs) -> Dict[str, Any]:
@@ -127,8 +128,8 @@ def mcp_tool_handler(operation_name: str):
                         operation=operation_name,
                         success=False,
                         execution_time=execution_time,
-                        additional_info={"error_type": error_type}
-                    )
+                        additional_info={"error_type": error_type},
+                    ),
                 }
 
             except (DatabaseConnectionError, SQLExecutionError) as e:
@@ -141,8 +142,8 @@ def mcp_tool_handler(operation_name: str):
                         operation=operation_name,
                         success=False,
                         execution_time=execution_time,
-                        additional_info={"error_type": error_type}
-                    )
+                        additional_info={"error_type": error_type},
+                    ),
                 }
 
             except TimeoutError as e:
@@ -154,8 +155,8 @@ def mcp_tool_handler(operation_name: str):
                         operation=operation_name,
                         success=False,
                         execution_time=execution_time,
-                        additional_info={"error_type": "pool_timeout_error"}
-                    )
+                        additional_info={"error_type": "pool_timeout_error"},
+                    ),
                 }
 
             except RuntimeError as e:
@@ -172,8 +173,8 @@ def mcp_tool_handler(operation_name: str):
                         operation=operation_name,
                         success=False,
                         execution_time=execution_time,
-                        additional_info={"error_type": error_type}
-                    )
+                        additional_info={"error_type": error_type},
+                    ),
                 }
 
             except Exception as e:
@@ -188,9 +189,10 @@ def mcp_tool_handler(operation_name: str):
                         operation=operation_name,
                         success=False,
                         execution_time=execution_time,
-                        additional_info={"error_type": error_type}
-                    )
+                        additional_info={"error_type": error_type},
+                    ),
                 }
 
         return wrapper
+
     return decorator

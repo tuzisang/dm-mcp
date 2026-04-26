@@ -14,14 +14,15 @@ DEFAULT_CACHE_TTL = 60.0
 @dataclass
 class _CacheEntry:
     """内部缓存条目。"""
+
     value: Any
     created_at: float
     ttl: float
-    
+
     def is_expired(self) -> bool:
         """检查缓存是否过期"""
         return time.time() - self.created_at > self.ttl
-    
+
     def age(self) -> float:
         """获取缓存年龄（秒）"""
         return time.time() - self.created_at
@@ -46,11 +47,7 @@ class _CacheStore:
 
     def set(self, key: str, value: Any, ttl: float) -> None:
         with self._lock:
-            self._cache[key] = _CacheEntry(
-                value=value,
-                created_at=time.time(),
-                ttl=ttl
-            )
+            self._cache[key] = _CacheEntry(value=value, created_at=time.time(), ttl=ttl)
 
     def clear(self, pattern: Optional[str] = None) -> int:
         with self._lock:
@@ -58,10 +55,9 @@ class _CacheStore:
                 count = len(self._cache)
                 self._cache.clear()
                 return count
-            
+
             keys_to_delete = [
-                key for key in self._cache.keys()
-                if fnmatch.fnmatch(key, pattern)
+                key for key in self._cache.keys() if fnmatch.fnmatch(key, pattern)
             ]
             for key in keys_to_delete:
                 del self._cache[key]
@@ -85,6 +81,7 @@ def _build_cache_key(func_name: str, args: tuple, kwargs: dict) -> str:
 
 def mcp_cache(ttl: float = DEFAULT_CACHE_TTL):
     """只缓存成功的工具结果。"""
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs) -> Dict[str, Any]:

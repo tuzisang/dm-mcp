@@ -172,7 +172,9 @@ class DmClient:
             owner = ""
             view = "USER_TAB_COLUMNS"
 
-        return self.execute_query(sql.format(view=view, table=validated_table, owner=owner))
+        return self.execute_query(
+            sql.format(view=view, table=validated_table, owner=owner)
+        )
 
     def get_view_definition(
         self,

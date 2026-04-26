@@ -159,19 +159,38 @@ class TestClassifyStatement:
         assert classify_statement("select * from users") == STATEMENT_TYPE_SELECT
 
     def test_explain(self):
-        assert classify_statement("EXPLAIN SELECT * FROM users") == STATEMENT_TYPE_EXPLAIN
-        assert classify_statement("explain select * from users") == STATEMENT_TYPE_EXPLAIN
+        assert (
+            classify_statement("EXPLAIN SELECT * FROM users") == STATEMENT_TYPE_EXPLAIN
+        )
+        assert (
+            classify_statement("explain select * from users") == STATEMENT_TYPE_EXPLAIN
+        )
 
     def test_explain_plan_for(self):
-        assert classify_statement("EXPLAIN PLAN FOR SELECT * FROM users") == STATEMENT_TYPE_EXPLAIN_PLAN
-        assert classify_statement("explain plan for select * from users") == STATEMENT_TYPE_EXPLAIN_PLAN
+        assert (
+            classify_statement("EXPLAIN PLAN FOR SELECT * FROM users")
+            == STATEMENT_TYPE_EXPLAIN_PLAN
+        )
+        assert (
+            classify_statement("explain plan for select * from users")
+            == STATEMENT_TYPE_EXPLAIN_PLAN
+        )
         # 验证 EXPLAIN PLAN FOR 优先级高于 EXPLAIN
-        assert classify_statement("EXPLAIN PLAN FOR DELETE FROM users") == STATEMENT_TYPE_EXPLAIN_PLAN
+        assert (
+            classify_statement("EXPLAIN PLAN FOR DELETE FROM users")
+            == STATEMENT_TYPE_EXPLAIN_PLAN
+        )
 
     def test_explain_plan_without_for(self):
         """EXPLAIN PLAN（不含 FOR）也归为 EXPLAIN_PLAN"""
-        assert classify_statement("EXPLAIN PLAN SELECT * FROM users") == STATEMENT_TYPE_EXPLAIN_PLAN
-        assert classify_statement("explain plan select * from users") == STATEMENT_TYPE_EXPLAIN_PLAN
+        assert (
+            classify_statement("EXPLAIN PLAN SELECT * FROM users")
+            == STATEMENT_TYPE_EXPLAIN_PLAN
+        )
+        assert (
+            classify_statement("explain plan select * from users")
+            == STATEMENT_TYPE_EXPLAIN_PLAN
+        )
 
     def test_unrecognized_raises(self):
         with pytest.raises(ValueError):

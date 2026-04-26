@@ -53,7 +53,9 @@ def validate_identifier(identifier: str, identifier_type: str = "identifier") ->
 
     # 检查有效的标识符模式（字母、数字、下划线）
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", identifier):
-        raise InvalidParameterError(f"{identifier_type} 必须以字母或下划线开头，且只能包含字母、数字和下划线")
+        raise InvalidParameterError(
+            f"{identifier_type} 必须以字母或下划线开头，且只能包含字母、数字和下划线"
+        )
 
     return identifier
 
@@ -79,10 +81,10 @@ def _strip_sql_comments(sql: str) -> str:
 
         # 移除开头的单行注释 (-- 注释)
         # 匹配 -- 开头直到换行符的内容
-        result = re.sub(r'^--[^\n]*\n?', '', result, flags=re.MULTILINE).strip()
+        result = re.sub(r"^--[^\n]*\n?", "", result, flags=re.MULTILINE).strip()
 
         # 移除开头的块注释 (/* 注释 */)
-        result = re.sub(r'^/\*.*?\*/', '', result, flags=re.DOTALL).strip()
+        result = re.sub(r"^/\*.*?\*/", "", result, flags=re.DOTALL).strip()
 
         # 如果没有变化，说明没有更多注释了
         if result == original:
@@ -157,8 +159,18 @@ def validate_sql_query(sql: str) -> Tuple[str, StatementType]:
 
     # 检查潜在的危险操作（在去除注释后的 SQL 中检查）
     dangerous_keywords = [
-        "DROP", "DELETE", "UPDATE", "INSERT", "CREATE", "ALTER",
-        "EXEC", "EXECUTE", "TRUNCATE", "MERGE", "GRANT", "REVOKE"
+        "DROP",
+        "DELETE",
+        "UPDATE",
+        "INSERT",
+        "CREATE",
+        "ALTER",
+        "EXEC",
+        "EXECUTE",
+        "TRUNCATE",
+        "MERGE",
+        "GRANT",
+        "REVOKE",
     ]
 
     for keyword in dangerous_keywords:

@@ -143,7 +143,9 @@ class JavaBridgeClient:
             return True
 
         try:
-            return BRIDGE_SOURCE_FILE.stat().st_mtime > BRIDGE_CLASS_FILE.stat().st_mtime
+            return (
+                BRIDGE_SOURCE_FILE.stat().st_mtime > BRIDGE_CLASS_FILE.stat().st_mtime
+            )
         except OSError:
             return True
 
