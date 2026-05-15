@@ -183,7 +183,9 @@ class JavaBridgeClient:
                     raise JavaBridgeError(f"Java 守护进程启动失败: {detail}")
                 raise JavaBridgeError("Java 守护进程启动失败")
 
-            line = self._read_line_with_timeout(timeout=1)
+            line = self._read_line_with_timeout(
+                timeout=max(1, int(deadline - time.time()))
+            )
             if line is None:
                 continue
 
